@@ -242,6 +242,7 @@ function ensureDefaults(){
   if(!Array.isArray(DB.horaires)) DB.horaires=[];
   if(!Array.isArray(DB.fiches)) DB.fiches=[];
   if(DB.contratHebdo==null) DB.contratHebdo=42;
+  DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
   if(!Array.isArray(DB.cryptoTrack)){ DB.cryptoTrack=[{id:"sb",nom:"Swissborg",history:[]},{id:"av",nom:"Assurance vie",history:[]}]; DB.avSeeded=true; }
   else if(!DB.avSeeded){ if(!DB.cryptoTrack.some(p=>p.id==="av")) DB.cryptoTrack.push({id:"av",nom:"Assurance vie",history:[]}); DB.avSeeded=true; }
 }
@@ -371,6 +372,29 @@ function flowOf(m){
     if(isLiquid(t.from)&&isSavings(t.to)) epargne+=v; else if(isSavings(t.from)&&isLiquid(t.to)) epargne-=v; });
   return {rev,dep,epargne,dispo:rev-dep-epargne};
 }
+/* ---------- Rapport : besoin (essentiel) vs envie + train de vie ---------- */
+const BESOIN_DEFAUT={
+  "Courses & Alimentation":true,"Chien (Hatchi)":true,"Ferme & Volailles":true,"Transport":true,
+  "Santé":true,"Abonnements":true,"Maison & Tech":true,"Divers & Remboursements":true,
+  "Sorties & Restaurants":false,"Beauté & Mode":false,"Loisirs & Passions":false,"Cadeaux & Fêtes":false
+};
+function catBesoin(name){ const c=(DB.categories||[]).find(x=>x.name===name); if(c&&typeof c.besoin==="boolean")return c.besoin;
+  return BESOIN_DEFAUT[name]!==undefined?BESOIN_DEFAUT[name]:true; }
+function depByBesoin(m){ let besoin=0,envie=0; const byCatB={},byCatE={};
+  txOfMonth(m).filter(isDepense).forEach(t=>{ const v=Math.abs(t.montant),c=t.categorie||"Autres";
+    if(catBesoin(c)){besoin+=v;byCatB[c]=(byCatB[c]||0)+v;} else {envie+=v;byCatE[c]=(byCatE[c]||0)+v;} });
+  return {besoin,envie,total:besoin+envie,byCatB,byCatE}; }
+function monthsWithDep(){ const s=new Set(); DB.transactions.forEach(t=>{ if(isDepense(t)){const mo=monthOf(t.date); if(mo!=null)s.add(mo);} }); return [...s]; }
+function avgMensuel(){ const ms=monthsWithDep(); if(!ms.length)return{besoin:0,envie:0,total:0,n:0};
+  let b=0,e=0; ms.forEach(m=>{const d=depByBesoin(m);b+=d.besoin;e+=d.envie;}); const n=ms.length; return{besoin:b/n,envie:e/n,total:(b+e)/n,n}; }
+function avgRevenu(){ const by={}; DB.transactions.filter(isRevenu).forEach(t=>{const mo=monthOf(t.date); if(mo!=null)by[mo]=(by[mo]||0)+t.montant;});
+  const ks=Object.keys(by); return ks.length?ks.reduce((a,k)=>a+by[k],0)/ks.length:0; }
+function chargesFixes(){ const seen={}; let dep=0,epargne=0; const items=[];
+  (DB.future||[]).forEach(f=>{ const key=f.serieId||f.id; if(seen[key])return; const fr=f.freq||"ponctuel"; if(fr==="ponctuel"||f.statut==="annulé")return; seen[key]=1;
+    const div=fr==="annuel"?12:fr==="trimestriel"?3:1; const v=Math.abs(f.montant)/div;
+    if(f.type==="transfer"){ if(isSavings(f.to)){epargne+=v;items.push({nom:f.nom,v,kind:"epargne",fr});} else {dep+=v;items.push({nom:f.nom,v,kind:"charge",fr});} }
+    else if(f.montant<0){ dep+=v; items.push({nom:f.nom,v,kind:"charge",fr}); } });
+  return {dep,epargne,items}; }
 function computeBalances(){
   const bal={}; DB.accounts.forEach(a=>bal[a.id]=a.opening||0);
   let cryptoInv=0, peaInv=0; const inv={}; /* inv = net transféré (montant investi) par compte */
@@ -506,7 +530,7 @@ function renderNav(){
 function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
-  const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
+  const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
   m.innerHTML=v();
   updateTop();
   if(UI.tab==="dash") drawBars("barsDash");
@@ -569,7 +593,7 @@ function viewDash(){
     <div class="x">Compte courant + caisse + portefeuille · Patrimoine total : ${eur0(patrimoine)}</div></div>
   <div class="card"><h2>🏦 Mes comptes</h2><div class="grid accts">${cards}</div>
     <div class="muted" style="font-size:12px;margin-top:10px">💡 Première utilisation : recale chaque compte sur ton solde réel dans Réglages (1 clic par compte).</div>
-    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="openCompteur()">🧮 Compter mes espèces</button><button class="btn ghost sm" onclick="go('reglages')">Recaler mes soldes →</button></div></div>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="go('rapport')">📋 Mon rapport mensuel</button><button class="btn ghost sm" onclick="openCompteur()">🧮 Compter mes espèces</button><button class="btn ghost sm" onclick="go('reglages')">Recaler mes soldes →</button></div></div>
   ${caisseRappel}
   ${cryptoSummary}
   ${soon}
@@ -1027,6 +1051,9 @@ function viewIA(){
   const pace=f.elapsed<f.dim?`Au rythme actuel (${eur0(f.spent)} dépensés en ${f.elapsed} j), tu finiras <b>${MONTHS[f.refMonth]}</b> autour de <span class="hl">${eur0(f.projMonth)}</span> de dépenses`:`Tu as dépensé <span class="hl">${eur0(f.spent)}</span> en <b>${MONTHS[f.refMonth]}</b>`;
   const vsB=f.totalBudget>0?(f.projMonth>f.totalBudget?` — soit <b class="neg">${eur0(f.projMonth-f.totalBudget)} au-dessus</b> du budget (${eur0(f.totalBudget)}).`:` — dans le budget de ${eur0(f.totalBudget)} ✅.`):".";
   return `<div class="pagehead">🤖 Assistant</div>${monthSelector()}
+  <div class="card" style="border:1px solid var(--accent)"><h2>📋 Rapport mensuel complet</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Passé, présent, futur · ton train de vie · dépenses essentielles vs plaisirs · budget à valeurs fixes.</div>
+    <button class="btn" onclick="go('rapport')">📋 Voir mon rapport mensuel →</button></div>
   <div class="card"><h2>💸 Où va ton argent ${lab}</h2>
     ${fluxBar(fl)}
     <div class="legend" style="margin:0 0 8px">
@@ -1048,6 +1075,91 @@ function viewIA(){
     ${fl.epargne>0?`<div class="insight"><div class="em">🐷</div><div class="it">Tu as mis <b>${eur0(fl.epargne)}</b> de côté ${lab}${f.elapsed<f.dim?` — au rythme actuel, ~<span class="hl">${eur0(projEp)}</span> d'ici la fin du mois`:""}.</div></div>`:""}
     <div class="insight"><div class="em">🗓️</div><div class="it">Sur l'année : <b>${eur0(f.totYear)}</b> dépensés en ${f.monthsElapsed.toFixed(1)} mois. Projection fin 2026 : <span class="hl">${eur0(f.projYear)}</span> de dépenses.</div></div>
     <div class="insight"><div class="em">💡</div><div class="it">Pour rester dans les clous, vise <b>${eur0(f.totalBudget)}</b> de dépenses par mois.</div></div></div>`;
+}
+
+/* ===================== RAPPORT MENSUEL ===================== */
+function miniRank(byCat,total,col){ const rows=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  if(!rows.length) return `<div class="muted" style="font-size:12.5px;padding:4px 0">Rien sur cette période.</div>`;
+  const max=rows[0][1];
+  return rows.map(r=>`<div class="bbar"><div class="top"><span>${catEmoji(r[0])} <b>${r[0]}</b></span><span><b>${eur0(r[1])}</b> <span class="muted">(${total?Math.round(r[1]/total*100):0}%)</span></span></div>
+    <div class="track"><div class="fill" style="width:${Math.max(r[1]/max*100,3)}%;background:${col}"></div></div></div>`).join(""); }
+function viewRapport(){
+  const m = UI.month==="all" ? new Date().getMonth() : UI.month;
+  const fl=flowOf(m), split=depByBesoin(m), bal=computeBalances();
+  const dispo=(bal.cc||0)+(bal.caisse||0)+(bal.portefeuille||0);
+  const epargneTot=DB.accounts.filter(a=>a.active&&isSavings(a.id)).reduce((s,a)=>s+(bal[a.id]||0),0);
+  const patrimoine=DB.accounts.filter(a=>a.active).reduce((s,x)=>s+(bal[x.id]||0),0);
+  const avg=avgMensuel(), avgRev=avgRevenu(), cf=chargesFixes(), dev=Devin.forecast(m);
+  const pctEnvie = split.total?Math.round(split.envie/split.total*100):0;
+  // plan à valeurs fixes
+  const revRef = avgRev>0?avgRev:(fl.rev>0?fl.rev:0);
+  const planEss = avg.besoin;
+  let planEp = revRef>0?Math.max(0,revRef*0.20):0;
+  let planPlaisir = revRef>0?Math.max(0,revRef-planEss-planEp):avg.envie;
+  if(revRef>0 && planEss+planEp>revRef){ planEp=Math.max(0,revRef-planEss); planPlaisir=0; }
+  const thin = avg.n<2;
+
+  return `<div class="pagehead">📋 Mon rapport mensuel</div>
+  ${monthSelector()}
+  ${thin?`<div class="card" style="border:1px solid var(--warn)"><div class="insight" style="margin:0;background:transparent"><div class="em">💡</div><div class="it" style="font-size:12.5px">Tu n'as pour l'instant que <b>${avg.n||0} mois</b> de données. Les moyennes et le « train de vie » s'afficheront mais s'affineront au fur et à mesure que tu saisis tes opérations.</div></div></div>`:""}
+
+  <div class="card"><h2>⏪ PASSÉ — ${MONTHS[m]} (réalisé)</h2>
+    ${fluxRow("💼 Revenus encaissés","+"+eur(fl.rev),"var(--pos)")}
+    ${fluxRow("🧷 Dépenses essentielles (besoin)","−"+eur(split.besoin),"var(--neg)")}
+    ${fluxRow("🎈 Dépenses plaisir (envie)","−"+eur(split.envie),"var(--warn)")}
+    ${fluxRow("🐷 Épargne mise de côté","−"+eur(fl.epargne),"var(--info)")}
+    ${fluxRow("✅ Reste disponible",(fl.dispo>=0?"":"−")+eur(Math.abs(fl.dispo)),fl.dispo>=0?"var(--pos)":"var(--neg)",true)}
+    <div class="muted" style="font-size:11.5px;margin-top:8px">Sur tes dépenses du mois, <b>${pctEnvie}%</b> sont des « envies » (non essentielles) — c'est là que se trouvent tes marges d'économie.</div>
+  </div>
+
+  <div class="card"><h2>⏺️ PRÉSENT — état actuel</h2>
+    <div class="grid kpis">
+      <div class="kpi"><div class="lbl">Dispo au quotidien</div><div class="val ${dispo>=0?'pos':'neg'}">${eur0(dispo)}</div></div>
+      <div class="kpi"><div class="lbl">Épargne & placements</div><div class="val">${eur0(epargneTot)}</div></div>
+      <div class="kpi"><div class="lbl">Patrimoine total</div><div class="val">${eur0(patrimoine)}</div></div>
+    </div>
+    <div class="muted" style="font-size:11.5px;margin-top:6px">« Dispo » = compte courant + caisse + portefeuille. Le reste est mis de côté (livret, placements, crypto…).</div>
+  </div>
+
+  <div class="card"><h2>🏠 TON TRAIN DE VIE <span class="tag">moyenne /mois</span></h2>
+    ${fluxRow("🧷 Vie essentielle (besoin)","≈ "+eur0(avg.besoin)+" /mois","var(--text)",true)}
+    ${fluxRow("🎈 Plaisirs (envie)","≈ "+eur0(avg.envie)+" /mois","var(--warn)")}
+    ${fluxRow("💰 Coût de vie total","≈ "+eur0(avg.total)+" /mois","var(--neg)",true)}
+    ${avgRev>0?fluxRow("💼 Revenu moyen","≈ "+eur0(avgRev)+" /mois","var(--pos)"):""}
+    ${avgRev>0?fluxRow("📈 Capacité d'épargne théorique","≈ "+eur0(avgRev-avg.total)+" /mois",(avgRev-avg.total)>=0?"var(--pos)":"var(--neg)",true):""}
+    <div class="muted" style="font-size:11.5px;margin-top:8px">Calculé sur la moyenne de tes <b>${avg.n||0}</b> mois saisis. C'est le chiffre clé pour fixer un budget stable.</div>
+  </div>
+
+  ${cf.items.length?`<div class="card"><h2>🔁 Tes charges fixes récurrentes</h2>
+    ${cf.items.sort((a,b)=>b.v-a.v).map(it=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)"><span>${it.kind==='epargne'?'🐷':'📌'} ${it.nom} <span class="muted" style="font-size:11px">(${it.fr})</span></span><b style="color:${it.kind==='epargne'?'var(--info)':'var(--neg)'}">${eur0(it.v)}/mois</b></div>`).join("")}
+    ${fluxRow("Total engagements récurrents","−"+eur0(cf.dep)+(cf.epargne?" + "+eur0(cf.epargne)+" épargne":""),"var(--text)",true)}
+    <div class="muted" style="font-size:11.5px;margin-top:6px">Issu de tes paiements programmés dans « À venir » (ramenés au mois).</div>
+  </div>`:""}
+
+  <div class="card"><h2>✂️ NÉCESSAIRE vs NON-NÉCESSAIRE — ${MONTHS[m]}</h2>
+    <div style="font-weight:800;margin:4px 0 6px;color:var(--neg)">🧷 Essentielles — ${eur0(split.besoin)}</div>
+    ${miniRank(split.byCatB,split.total,'var(--neg)')}
+    <div style="font-weight:800;margin:14px 0 6px;color:var(--warn)">🎈 Non essentielles (leviers d'économie) — ${eur0(split.envie)}</div>
+    ${miniRank(split.byCatE,split.total,'var(--warn)')}
+    <div class="muted" style="font-size:11.5px;margin-top:10px">Tu décides ce qui est essentiel ou non dans <b>Réglages → Catégories</b> (case « essentiel »).</div>
+  </div>
+
+  <div class="card"><h2>⏩ FUTUR — prévisions</h2>
+    ${dev.elapsed<dev.dim?`<div class="insight"><div class="em">📅</div><div class="it">Au rythme actuel, <b>${MONTHS[dev.refMonth]}</b> devrait finir autour de <span class="hl">${eur0(dev.projMonth)}</span> de dépenses.</div></div>`:""}
+    ${(()=>{const up=upcoming(30);return up.length?`<div class="insight"><div class="em">📌</div><div class="it"><b>${up.length}</b> paiement(s) prévu(s) dans les 30 prochains jours, pour <b>${eur0(up.reduce((a,f)=>a+Math.abs(f.montant),0))}</b>.</div></div>`:"";})()}
+    ${avg.envie>0?`<div class="insight"><div class="em">✂️</div><div class="it">Si tu réduisais tes « envies » de moitié, tu économiserais <b class="pos">≈ ${eur0(avg.envie/2)}/mois</b> (soit <b>${eur0(avg.envie/2*12)}/an</b>).</div></div>`:""}
+  </div>
+
+  ${revRef>0?`<div class="card" style="border:1px solid var(--accent)"><h2>🎯 Ton budget à valeurs fixes (proposition)</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:8px">Sur la base d'un revenu moyen de <b>${eur0(revRef)}/mois</b>, voici une répartition stable d'un mois sur l'autre :</div>
+    ${fluxRow("🧷 Essentiels (incompressible)",eur0(planEss),"var(--text)")}
+    ${fluxRow("🎈 Enveloppe plaisir",eur0(planPlaisir),"var(--warn)")}
+    ${fluxRow("🐷 Épargne (objectif ~20%)",eur0(planEp),"var(--info)")}
+    ${fluxRow("Total",eur0(planEss+planPlaisir+planEp),"var(--accent)",true)}
+    ${planEss>revRef?`<div class="muted" style="font-size:11.5px;margin-top:8px;color:var(--neg)">⚠️ Tes dépenses essentielles dépassent déjà ton revenu moyen — il faut réduire certaines charges fixes en priorité.</div>`:`<div class="muted" style="font-size:11.5px;margin-top:8px">Garde l'enveloppe plaisir comme une limite à ne pas dépasser : c'est ce qui rend ton budget prévisible.</div>`}
+  </div>`:""}
+
+  <button class="btn ghost" onclick="go('ia')" style="margin-top:4px">← Retour à l'Assistant</button>`;
 }
 
 /* ===================== HORAIRES ===================== */
@@ -1225,6 +1337,7 @@ function viewReglages(){
     <input class="emoji" value="${c.emoji}" onchange="setCat(${i},'emoji',this.value)">
     <input class="si" value="${c.name}" onchange="setCat(${i},'name',this.value)">
     <input class="si" style="flex:2;min-width:150px" value="${(c.subs||[]).join(', ')}" placeholder="sous-catégories séparées par des virgules" onchange="setCatSubs(${i},this.value)">
+    <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);white-space:nowrap" title="Dépense essentielle (besoin) ou non (envie) — utilisé dans le rapport"><input type="checkbox" ${c.besoin?'checked':''} onchange="setCatBesoin(${i},this.checked)"> essentiel</label>
     <label class="switch"><input type="checkbox" ${c.active?'checked':''} onchange="setCat(${i},'active',this.checked)"><span class="sl"></span></label>
     <button class="del" onclick="delCat(${i})">🗑️</button>
   </div>`).join("");
@@ -1234,7 +1347,7 @@ function viewReglages(){
     ${acts}
     <div style="margin-top:12px"><button class="btn ghost sm" onclick="addAcct()">+ Ajouter un compte</button></div></div>
   <div class="card"><h2>🏷️ Catégories</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Renomme, ajoute ou désactive des catégories. Les sous-catégories sont séparées par des virgules.</div>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Renomme, ajoute ou désactive des catégories. Les sous-catégories sont séparées par des virgules. Coche <b>« essentiel »</b> si c'est un besoin (loyer, courses, santé…) plutôt qu'une envie — ça sert au rapport mensuel.</div>
     ${cats}
     <div class="row2" style="margin-top:14px"><div class="field" style="margin:0"><input id="ncEmoji" class="emoji" placeholder="🏷️" style="width:100%"></div>
       <div class="field" style="margin:0"><input id="ncName" placeholder="Nom de la nouvelle catégorie"></div></div>
@@ -1261,6 +1374,7 @@ function setCat(i,f,v){ const c=DB.categories[i]; if(!c)return;
   if(f==="name"){ const old=c.name; const nn=v.trim()||old; DB.transactions.forEach(t=>{if(t.categorie===old)t.categorie=nn;}); c.name=nn; }
   else c[f]= f==="active"?!!v:v; save(); if(f==="active"||f==="emoji")render(); }
 function setCatSubs(i,v){ DB.categories[i].subs=v.split(",").map(s=>s.trim()).filter(Boolean); save(); }
+function setCatBesoin(i,v){ if(DB.categories[i]){ DB.categories[i].besoin=!!v; save(); } }
 function delCat(i){ if(!confirm("Supprimer la catégorie « "+DB.categories[i].name+" » ? (les opérations existantes gardent leur libellé)"))return; DB.categories.splice(i,1); save(); render(); }
 function addCat(){ const n=document.getElementById("ncName").value.trim(); if(!n){toast("Donne un nom");return;}
   DB.categories.push({name:n,emoji:(document.getElementById("ncEmoji").value.trim()||"🏷️"),active:true,subs:[]}); save(); toast("Catégorie ajoutée"); render(); }
@@ -1304,7 +1418,7 @@ window.openCompteur=openCompteur;window.recalcCaisse=recalcCaisse;window.saveCai
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;window.addFiche=addFiche;window.viewFiche=viewFiche;window.delFiche=delFiche;
-window.setCatSubs=setCatSubs;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
+window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 async function boot(){
   try{
