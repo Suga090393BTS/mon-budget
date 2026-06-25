@@ -1,0 +1,8 @@
+# Réglages locaux Claude (contiennent un jeton — NE JAMAIS publier)
+.claude/
+
+# Serveur de dev avec chemin local en dur (remplacé par serveur.py)
+server.py
+
+# Fichiers système macOS
+.DS_Store
