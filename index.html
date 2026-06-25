@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0f766e">
 <title>Mon budget</title>
+<!-- PWA : installable comme une appli -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mon budget">
 <style>
 :root{
   --bg:#f4f6f8; --surface:#ffffff; --surface-2:#f0f3f5; --line:#e2e8f0;
@@ -1457,6 +1465,8 @@ async function boot(){
   }
 }
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",boot); else boot();
+/* Enregistrement du service worker (PWA) — silencieux si non supporté */
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>{ navigator.serviceWorker.register("sw.js").catch(()=>{}); }); }
 </script>
 </body>
 </html>
