@@ -18,6 +18,15 @@
     --text:#e8edf6; --muted:#94a3b8; --accent:#2dd4bf; --accent-soft:#0f3b36;
     --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 30px rgba(0,0,0,.35); }
 }
+/* Forçage manuel jour/nuit (prioritaire sur le réglage système) */
+html[data-theme="light"]{ --bg:#f4f6f8; --surface:#ffffff; --surface-2:#f0f3f5; --line:#e2e8f0;
+  --text:#0f172a; --muted:#64748b; --accent:#0f766e; --accent-soft:#ccfbf1;
+  --pos:#059669; --neg:#dc2626; --warn:#d97706; --info:#2563eb;
+  --shadow:0 1px 3px rgba(15,23,42,.08),0 8px 24px rgba(15,23,42,.06); }
+html[data-theme="dark"]{ --bg:#0b1220; --surface:#131c2e; --surface-2:#1c2840; --line:#28344d;
+  --text:#e8edf6; --muted:#94a3b8; --accent:#2dd4bf; --accent-soft:#0f3b36;
+  --pos:#10b981; --neg:#f87171; --warn:#fbbf24; --info:#60a5fa;
+  --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 30px rgba(0,0,0,.35); }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -170,6 +179,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Ar
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
+    <button class="iconbtn" id="btnTheme" title="Jour / Nuit" onclick="toggleTheme()">🌙</button>
     <button class="iconbtn" id="btnSettings" title="Réglages">⚙️</button>
   </div>
   <div class="shell">
@@ -1420,10 +1430,20 @@ window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHorai
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;window.addFiche=addFiche;window.viewFiche=viewFiche;window.delFiche=delFiche;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
+/* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
+function effectiveDark(){ const t=STORE.get("theme"); if(t==="dark")return true; if(t==="light")return false;
+  return !!(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches); }
+function applyTheme(){ const t=STORE.get("theme");
+  if(t==="light"||t==="dark") document.documentElement.setAttribute("data-theme",t); else document.documentElement.removeAttribute("data-theme");
+  const b=document.getElementById("btnTheme"); if(b){ const d=effectiveDark(); b.textContent=d?"☀️":"🌙"; b.title=d?"Passer en mode jour":"Passer en mode nuit"; } }
+function toggleTheme(){ STORE.set("theme", effectiveDark()?"light":"dark"); applyTheme(); }
+window.toggleTheme=toggleTheme;
 async function boot(){
   try{
+    applyTheme();
     initSb();
     loadLocal(); renderNav(); render();
+    applyTheme();
     document.getElementById("btnSettings").onclick=()=>go("reglages");
     document.getElementById("fileInput").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>importCSV(r.result);r.readAsText(f,"utf-8");e.target.value="";};
     if(sb){
