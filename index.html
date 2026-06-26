@@ -259,6 +259,7 @@ function ensureDefaults(){
   if(!Array.isArray(DB.cashCounts)) DB.cashCounts=[];
   if(!Array.isArray(DB.horaires)) DB.horaires=[];
   if(!Array.isArray(DB.fiches)) DB.fiches=[];
+  if(!Array.isArray(DB.objectifs)) DB.objectifs=[];
   if(DB.contratHebdo==null) DB.contratHebdo=42;
   DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
   if(!Array.isArray(DB.cryptoTrack)){ DB.cryptoTrack=[{id:"sb",nom:"Swissborg",history:[]},{id:"av",nom:"Assurance vie",history:[]}]; DB.avSeeded=true; }
@@ -548,7 +549,7 @@ function renderNav(){
 function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
-  const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
+  const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
   m.innerHTML=v();
   updateTop();
   if(UI.tab==="dash") drawBars("barsDash");
@@ -591,6 +592,15 @@ function viewDash(){
     const fait=(DB.cashCounts||[]).some(c=>c.acct==="caisse"&&(c.date||"").slice(0,7)===ym);
     if(!fait) caisseRappel=`<div class="card" style="border:1px solid var(--warn)"><div class="insight" style="margin:0;background:transparent"><div class="em">🧮</div><div class="it" style="flex:1"><b>Comptage de caisse du mois</b><div class="muted" style="font-size:12px">Tu n'as pas encore compté ta caisse ce mois-ci. Fais-le pour vérifier qu'il n'y a pas d'écart.</div></div><button class="btn sm" onclick="openCompteur('caisse')">Compter</button></div></div>`;
   }
+  // objectifs d'épargne
+  let objSummary="";
+  if((DB.objectifs||[]).length){
+    const rows=DB.objectifs.slice().sort((a,b)=>(a.echeance||"9999").localeCompare(b.echeance||"9999")).slice(0,3).map(o=>{
+      const pct=o.cible?Math.min((o.actuel||0)/o.cible*100,100):0, atteint=(o.actuel||0)>=o.cible&&o.cible>0;
+      return `<div style="margin:8px 0"><div style="display:flex;justify-content:space-between;font-size:12.5px"><span>${o.emoji||'🎯'} <b>${o.nom}</b></span><span>${eur0(o.actuel||0)} / ${eur0(o.cible||0)}</span></div>
+        <div class="track" style="height:9px;margin-top:3px"><div class="fill" style="width:${pct}%;background:${atteint?'var(--pos)':'var(--accent)'}"></div></div></div>`;}).join("");
+    objSummary=`<div class="card"><h2>🎯 Mes objectifs d'épargne</h2>${rows}<div style="margin-top:8px"><button class="btn ghost sm" onclick="go('objectifs')">Gérer mes objectifs →</button></div></div>`;
+  }
   // bientôt
   const od=overdue(), up=upcoming(30);
   let soon="";
@@ -611,8 +621,9 @@ function viewDash(){
     <div class="x">Compte courant + caisse + portefeuille · Patrimoine total : ${eur0(patrimoine)}</div></div>
   <div class="card"><h2>🏦 Mes comptes</h2><div class="grid accts">${cards}</div>
     <div class="muted" style="font-size:12px;margin-top:10px">💡 Première utilisation : recale chaque compte sur ton solde réel dans Réglages (1 clic par compte).</div>
-    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="go('rapport')">📋 Mon rapport mensuel</button><button class="btn ghost sm" onclick="openCompteur()">🧮 Compter mes espèces</button><button class="btn ghost sm" onclick="go('reglages')">Recaler mes soldes →</button></div></div>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="go('rapport')">📋 Mon rapport mensuel</button><button class="btn ghost sm" onclick="go('objectifs')">🎯 Mes objectifs</button><button class="btn ghost sm" onclick="openCompteur()">🧮 Compter mes espèces</button><button class="btn ghost sm" onclick="go('reglages')">Recaler mes soldes →</button></div></div>
   ${caisseRappel}
+  ${objSummary}
   ${cryptoSummary}
   ${soon}
   ${monthSelector()}
@@ -791,21 +802,41 @@ function nextRecount(){ if(UI.recountQueue&&UI.recountQueue.length){ const id=UI
   else { UI.recountActive=false; const dest=UI.afterRecount||"dash"; UI.afterRecount=null; go(dest); } }
 
 /* ===================== OPÉRATIONS ===================== */
-let TXFILTER={q:"",cat:""};
+let TXFILTER={q:"",cat:"",acct:"",type:""};
+function txFiltersActive(){ return !!(TXFILTER.q||TXFILTER.cat||TXFILTER.acct||TXFILTER.type); }
+function resetTxFilter(){ TXFILTER={q:"",cat:"",acct:"",type:""}; render(); }
 function viewTx(){
   return `<div class="pagehead">📋 Opérations</div>${monthSelector()}
-  <div class="card" style="padding:14px"><div class="row2">
-    <div class="field" style="margin:0"><input id="txq" placeholder="🔍 Rechercher…" value="${TXFILTER.q}" oninput="TXFILTER.q=this.value;renderTxList()"></div>
-    <div class="field" style="margin:0"><select onchange="TXFILTER.cat=this.value;renderTxList()"><option value="">Toutes catégories</option>${DB.categories.map(c=>`<option ${TXFILTER.cat===c.name?'selected':''}>${c.name}</option>`).join("")}</select></div>
-  </div></div>
-  <div class="card"><div id="txlist" class="txlist"></div></div>`;
+  <div class="card" style="padding:14px">
+    <div class="field" style="margin:0 0 8px"><input id="txq" placeholder="🔍 Rechercher (note, catégorie…)" value="${TXFILTER.q}" oninput="TXFILTER.q=this.value;renderTxList()"></div>
+    <div class="row2" style="margin-bottom:8px">
+      <div class="field" style="margin:0"><select onchange="TXFILTER.cat=this.value;renderTxList()"><option value="">Toutes catégories</option>${DB.categories.map(c=>`<option ${TXFILTER.cat===c.name?'selected':''}>${c.name}</option>`).join("")}</select></div>
+      <div class="field" style="margin:0"><select onchange="TXFILTER.acct=this.value;renderTxList()"><option value="">Tous les comptes</option>${DB.accounts.map(a=>`<option value="${a.id}" ${TXFILTER.acct===a.id?'selected':''}>${a.emoji} ${a.name}</option>`).join("")}</select></div>
+    </div>
+    <div class="row2" style="align-items:center">
+      <div class="field" style="margin:0"><select onchange="TXFILTER.type=this.value;renderTxList()">
+        <option value="" ${TXFILTER.type===''?'selected':''}>Tous types</option>
+        <option value="dep" ${TXFILTER.type==='dep'?'selected':''}>↓ Dépenses</option>
+        <option value="ent" ${TXFILTER.type==='ent'?'selected':''}>↑ Entrées</option>
+        <option value="tr" ${TXFILTER.type==='tr'?'selected':''}>⇄ Transferts</option></select></div>
+      <div>${txFiltersActive()?`<button class="btn ghost sm" onclick="resetTxFilter()" style="width:100%">✕ Effacer les filtres</button>`:'<span></span>'}</div>
+    </div>
+  </div>
+  <div class="card"><div id="txMeta" class="muted" style="font-size:12px;margin-bottom:8px"></div><div id="txlist" class="txlist"></div></div>`;
 }
 function renderTxList(){
   let list=txOfMonth(UI.month).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  if(TXFILTER.q){const q=TXFILTER.q.toLowerCase(); list=list.filter(t=>((t.note||"")+" "+(t.categorie||"")+" "+(t.sousCategorie||"")).toLowerCase().includes(q));}
+  if(TXFILTER.q){const q=TXFILTER.q.toLowerCase(); list=list.filter(t=>((t.note||"")+" "+(t.categorie||"")+" "+(t.sousCategorie||"")+" "+(t.observation||"")).toLowerCase().includes(q));}
   if(TXFILTER.cat) list=list.filter(t=>t.categorie===TXFILTER.cat);
+  if(TXFILTER.acct) list=list.filter(t=> t.type==="transfer" ? (t.from===TXFILTER.acct||t.to===TXFILTER.acct) : resolveAccount(t)===TXFILTER.acct);
+  if(TXFILTER.type==="dep") list=list.filter(isDepense);
+  else if(TXFILTER.type==="ent") list=list.filter(isRevenu);
+  else if(TXFILTER.type==="tr") list=list.filter(t=>t.type==="transfer");
+  const meta=document.getElementById("txMeta");
+  if(meta){ const dep=list.filter(isDepense).reduce((a,t)=>a+Math.abs(t.montant),0); const ent=list.filter(isRevenu).reduce((a,t)=>a+t.montant,0);
+    meta.innerHTML=`<b>${list.length}</b> opération${list.length>1?'s':''}`+(dep?` · <span class="neg">−${eur0(dep)}</span>`:'')+(ent?` · <span class="pos">+${eur0(ent)}</span>`:''); }
   const el=document.getElementById("txlist"); if(!el)return;
-  if(!list.length){ el.innerHTML=`<div class="empty">Aucune opération.</div>`; return; }
+  if(!list.length){ el.innerHTML=`<div class="empty">Aucune opération${txFiltersActive()?' pour ces filtres':''}.</div>`; return; }
   el.innerHTML=list.map(t=>{
     if(t.type==="transfer") return `<div class="tx"><div class="ava">⇄</div>
       <div class="info"><div class="t1">${t.note||"Transfert"}${t.observation?' 📝':''}</div><div class="t2">${frDate(t.date)} · ${acctName(t.from)} → ${acctName(t.to)}</div></div>
@@ -1033,23 +1064,78 @@ function delCryptoPlatform(pid){ if(!confirm("Supprimer cette plateforme et tout
 /* ===================== BUDGET ===================== */
 function viewBudget(){
   const m=UI.month==="all"?new Date().getMonth():UI.month;
-  const tx=txOfMonth(m).filter(t=>isDepense(t)&&t.sousCategorie);
-  const spent={}; tx.forEach(t=>{spent[t.sousCategorie]=(spent[t.sousCategorie]||0)+Math.abs(t.montant);});
-  const subs=APPDATA.reference.sousCategories.filter(s=>s.budget>0);
-  const rows=subs.map(s=>({...s,spent:spent[s.label.trim()]||0})).sort((a,b)=>(b.spent/Math.max(b.budget,1))-(a.spent/Math.max(a.budget,1)));
-  const totB=subs.reduce((a,s)=>a+s.budget,0), totS=Object.values(spent).reduce((a,b)=>a+b,0);
-  const bars=rows.map(s=>{const r=s.budget?s.spent/s.budget:0,pct=Math.min(r*100,100),col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)";
-    return `<div class="bbar"><div class="top"><span><b>${s.label.trim()}</b></span><span style="color:${col}">${eur0(s.spent)} <span class="muted">/ ${eur0(s.budget)}</span></span></div>
-      <div class="track"><div class="fill" style="width:${pct}%;background:${col}"></div></div></div>`;}).join("");
+  const tx=txOfMonth(m).filter(isDepense);
+  const spent={}; tx.forEach(t=>{const c=t.categorie||"Autres"; spent[c]=(spent[c]||0)+Math.abs(t.montant);});
+  const cats=DB.categories.map((c,i)=>({c,i,b:c.budget||0,s:spent[c.name]||0})).filter(x=>x.c.active);
+  const withB=cats.filter(x=>x.b>0).sort((a,b)=>(b.s/b.b)-(a.s/a.b));
+  const noB=cats.filter(x=>x.b<=0&&x.s>0).sort((a,b)=>b.s-a.s);
+  const totB=withB.reduce((a,x)=>a+x.b,0), totS=Object.values(spent).reduce((a,b)=>a+b,0);
   const ratio=totB?Math.min(totS/totB*100,100):0;
-  return `<div class="pagehead">🎯 Budget vs Réel</div>
-  <div class="monthbar"><span style="font-weight:700">Mois :</span><select onchange="UI.month=+this.value;render()">${MONTHS.map((mn,i)=>`<option value="${i}" ${m===i?'selected':''}>${mn[0].toUpperCase()+mn.slice(1)}</option>`).join("")}</select></div>
+  const bar=x=>{const r=x.b?x.s/x.b:0,pct=Math.min(r*100,100),col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)",reste=x.b-x.s;
+    return `<div class="bbar"><div class="top"><span>${x.c.emoji} <b>${x.c.name}</b></span>
+      <span style="color:${col}">${eur0(x.s)} <span class="muted">/ ${eur0(x.b)}</span></span></div>
+      <div class="track"><div class="fill" style="width:${pct}%;background:${col}"></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+        <span class="muted" style="font-size:11.5px">${reste>=0?`reste <b class="pos">${eur0(reste)}</b>`:`dépassé de <b class="neg">${eur0(-reste)}</b>`}</span>
+        <span style="font-size:11.5px">plafond : <input type="number" min="0" step="10" value="${x.b}" onchange="setCatBudget(${x.i},this.value)" style="width:78px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"> €</span>
+      </div></div>`;};
+  const noBudgetRows=noB.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 2px;border-bottom:1px solid var(--line)">
+    <span>${x.c.emoji} ${x.c.name} <span class="muted" style="font-size:11.5px">— ${eur0(x.s)} dépensés</span></span>
+    <span style="font-size:11.5px">plafond : <input type="number" min="0" step="10" placeholder="0" value="" onchange="setCatBudget(${x.i},this.value)" style="width:78px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"> €</span></div>`).join("");
+  return `<div class="pagehead">🎯 Mes enveloppes</div>${monthSelector()}
   <div class="card"><h2>Vue d'ensemble — ${MONTHS[m]}</h2>
-    <div class="bbar"><div class="top"><span><b>Total dépensé</b></span><span style="color:${totS>totB?'var(--neg)':'var(--pos)'}">${eur0(totS)} <span class="muted">/ ${eur0(totB)}</span></span></div>
+    ${totB>0?`<div class="bbar"><div class="top"><span><b>Total dépensé</b></span><span style="color:${totS>totB?'var(--neg)':'var(--pos)'}">${eur0(totS)} <span class="muted">/ ${eur0(totB)} prévus</span></span></div>
       <div class="track"><div class="fill" style="width:${ratio}%;background:${totS>totB?'var(--neg)':'var(--accent)'}"></div></div></div>
-    <div class="muted" style="font-size:13px">${totS<=totB?`Il te reste <b class="pos">${eur0(totB-totS)}</b>.`:`Dépassement de <b class="neg">${eur0(totS-totB)}</b>.`}</div></div>
-  <div class="card"><h2>Détail par poste</h2>${bars||'<div class="empty">Aucun budget défini.</div>'}</div>`;
+    <div class="muted" style="font-size:13px">${totS<=totB?`Il te reste <b class="pos">${eur0(totB-totS)}</b> sur l'ensemble de tes enveloppes.`:`Tu as dépassé tes enveloppes de <b class="neg">${eur0(totS-totB)}</b>.`}</div>`
+    :`<div class="muted" style="font-size:13px">Définis un <b>plafond mensuel</b> par catégorie ci-dessous pour suivre tes enveloppes. Astuce : pars des montants de ton <b>train de vie</b> dans le <button class="btn ghost sm" style="display:inline;width:auto;padding:3px 8px" onclick="go('rapport')">📋 rapport</button>.</div>`}
+  </div>
+  ${withB.length?`<div class="card"><h2>Mes enveloppes</h2>${withB.map(bar).join("")}</div>`:""}
+  ${noBudgetRows?`<div class="card"><h2>Sans plafond <span class="tag">à définir</span></h2><div class="muted" style="font-size:12px;margin-bottom:8px">Ces catégories ont des dépenses ce mois-ci mais pas encore de plafond.</div>${noBudgetRows}</div>`:""}
+  ${!withB.length&&!noBudgetRows?'<div class="card"><div class="empty">Aucune dépense ce mois-ci. Saisis des opérations, puis fixe tes plafonds ici.</div></div>':""}`;
 }
+function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
+
+/* ===================== OBJECTIFS D'ÉPARGNE ===================== */
+function monthsUntil(iso){ if(!iso)return null; const now=new Date(); now.setHours(0,0,0,0); const p=iso.split("-").map(Number); const d=new Date(p[0],p[1]-1,p[2]); return (d-now)/(86400000*30.44); }
+function viewObjectifs(){
+  const e=UI.objEdit||{}; const editing=!!(UI.objEdit&&UI.objEdit.id);
+  const list=(DB.objectifs||[]).slice().sort((a,b)=>(a.echeance||"9999").localeCompare(b.echeance||"9999"));
+  const cards=list.map(o=>{
+    const cible=o.cible||0, actuel=o.actuel||0, pct=cible?Math.min(actuel/cible*100,100):0, reste=Math.max(0,cible-actuel);
+    const atteint=actuel>=cible&&cible>0; const mu=o.echeance?monthsUntil(o.echeance):null;
+    const moisR=mu!=null?Math.max(1,Math.ceil(mu)):null; const perMonth=(reste>0&&moisR)?reste/moisR:0;
+    const enRetard=mu!=null&&mu<0&&!atteint; const col=atteint?'var(--pos)':enRetard?'var(--neg)':'var(--accent)';
+    return `<div class="card"><h2>${o.emoji||'🎯'} ${o.nom} <span style="margin-left:auto;font-size:13px;color:${col};font-weight:800">${eur0(actuel)} / ${eur0(cible)}</span></h2>
+      <div class="track" style="height:12px"><div class="fill" style="width:${pct}%;background:${col}"></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12.5px">
+        <span>${atteint?'<b class="pos">🎉 Objectif atteint !</b>':`reste <b>${eur0(reste)}</b> (${Math.round(pct)}%)`}</span>
+        ${o.echeance?`<span class="muted">${enRetard?'<b class="neg">échéance dépassée</b>':`d'ici ${frDate(o.echeance)}`}</span>`:''}</div>
+      ${!atteint&&perMonth>0?`<div class="muted" style="font-size:12px;margin-top:6px">💡 Mets <b>${eur0(perMonth)}/mois</b> de côté pour y arriver${moisR?` (${moisR} mois)`:''}.</div>`:''}
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn ghost sm" onclick="objAdd('${o.id}')">＋ Versement</button>
+        <button class="btn ghost sm" onclick="objEdit('${o.id}')">✏️ Modifier</button>
+        <button class="btn ghost sm" onclick="delObjectif('${o.id}')">🗑️</button></div></div>`;}).join("");
+  return `<div class="pagehead">🎯 Mes objectifs d'épargne</div>
+  <div class="card"><h2>${editing?"✏️ Modifier l'objectif":"➕ Nouvel objectif"}</h2>
+    <div class="row2"><div class="field" style="flex:0 0 70px"><label>Icône</label><input id="oEmoji" class="emoji" value="${e.emoji||'🎯'}" style="width:100%"></div>
+      <div class="field"><label>Nom</label><input id="oNom" placeholder="Ex : Vacances, Voiture…" value="${(e.nom||'').replace(/"/g,'&quot;')}"></div></div>
+    <div class="row2"><div class="field"><label>Montant à atteindre (€)</label><input id="oCible" type="number" min="0" step="50" value="${e.cible||''}"></div>
+      <div class="field"><label>Déjà épargné (€)</label><input id="oActuel" type="number" min="0" step="10" value="${e.actuel||0}"></div></div>
+    <div class="field"><label>Échéance (facultatif)</label><input id="oEcheance" type="date" value="${e.echeance||''}"></div>
+    <button class="btn" onclick="saveObjectif()">${editing?"💾 Enregistrer":"✅ Créer l'objectif"}</button>
+    ${editing?`<button class="btn ghost" onclick="UI.objEdit=null;render()" style="margin-top:8px">Annuler</button>`:""}</div>
+  ${cards||'<div class="card"><div class="empty">Aucun objectif pour l\'instant. Crée ton premier ci-dessus 👆</div></div>'}
+  <button class="btn ghost" onclick="go('dash')" style="margin-top:4px">← Retour au tableau de bord</button>`;
+}
+function saveObjectif(){ const nom=document.getElementById("oNom").value.trim(); const cible=parseFloat(document.getElementById("oCible").value)||0;
+  if(!nom){toast("Donne un nom");return;} if(cible<=0){toast("Indique un montant à atteindre");return;}
+  const eid=(UI.objEdit&&UI.objEdit.id)?UI.objEdit.id:null;
+  const obj={id:eid||uid(),nom,emoji:document.getElementById("oEmoji").value.trim()||"🎯",cible,actuel:parseFloat(document.getElementById("oActuel").value)||0,echeance:document.getElementById("oEcheance").value||"",createdAt:eid?(UI.objEdit.createdAt||todayISO()):todayISO()};
+  if(eid){const i=DB.objectifs.findIndex(x=>x.id===eid); if(i>=0)DB.objectifs[i]=obj;} else DB.objectifs.push(obj);
+  UI.objEdit=null; save(); toast("Objectif enregistré ✅"); render(); }
+function objAdd(id){ const o=(DB.objectifs||[]).find(x=>x.id===id); if(!o)return; const v=prompt("Montant à ajouter à « "+o.nom+" » (€) :",""); if(v==null)return; const n=parseFloat(String(v).replace(",",".")); if(isNaN(n)){toast("Montant invalide");return;} o.actuel=Math.max(0,(o.actuel||0)+n); save(); toast(eur0(n)+" ajoutés"); render(); }
+function objEdit(id){ UI.objEdit=(DB.objectifs||[]).find(x=>x.id===id); render(); window.scrollTo(0,0); }
+function delObjectif(id){ const o=(DB.objectifs||[]).find(x=>x.id===id); if(!o)return; if(!confirm("Supprimer l'objectif « "+o.nom+" » ?"))return; DB.objectifs=DB.objectifs.filter(x=>x.id!==id); save(); render(); }
 
 /* ===================== ASSISTANT IA ===================== */
 function fluxBar(fl){
@@ -1437,6 +1523,7 @@ window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;window.addFiche=addFiche;window.viewFiche=viewFiche;window.delFiche=delFiche;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
+window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 /* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
 function effectiveDark(){ const t=STORE.get("theme"); if(t==="dark")return true; if(t==="light")return false;
