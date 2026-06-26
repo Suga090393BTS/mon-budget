@@ -399,9 +399,15 @@ const BESOIN_DEFAUT={
 };
 function catBesoin(name){ const c=(DB.categories||[]).find(x=>x.name===name); if(c&&typeof c.besoin==="boolean")return c.besoin;
   return BESOIN_DEFAUT[name]!==undefined?BESOIN_DEFAUT[name]:true; }
+/* essentiel ou non, au niveau de la sous-catégorie si précisé, sinon au niveau de la catégorie */
+function besoinOf(catName, sub){ const c=(DB.categories||[]).find(x=>x.name===catName);
+  if(c&&sub&&c.subsBesoin&&typeof c.subsBesoin[sub]==="boolean") return c.subsBesoin[sub];
+  return catBesoin(catName); }
+function setSubBesoin(i, sub, v){ const c=DB.categories[i]; if(!c)return; if(!c.subsBesoin)c.subsBesoin={}; c.subsBesoin[sub]=!!v; save(); render(); }
 function depByBesoin(m){ let besoin=0,envie=0; const byCatB={},byCatE={};
-  txOfMonth(m).filter(isDepense).forEach(t=>{ const v=Math.abs(t.montant),c=t.categorie||"Autres";
-    if(catBesoin(c)){besoin+=v;byCatB[c]=(byCatB[c]||0)+v;} else {envie+=v;byCatE[c]=(byCatE[c]||0)+v;} });
+  txOfMonth(m).filter(isDepense).forEach(t=>{ const v=Math.abs(t.montant),c=t.categorie||"Autres",sub=t.sousCategorie||"";
+    const label = sub?c+" / "+sub : c;
+    if(besoinOf(c,sub)){besoin+=v;byCatB[label]=(byCatB[label]||0)+v;} else {envie+=v;byCatE[label]=(byCatE[label]||0)+v;} });
   return {besoin,envie,total:besoin+envie,byCatB,byCatE}; }
 function monthsWithDep(){ const s=new Set(); DB.transactions.forEach(t=>{ if(isDepense(t)){const mo=monthOf(t.date); if(mo!=null)s.add(mo);} }); return [...s]; }
 function avgMensuel(){ const ms=monthsWithDep(); if(!ms.length)return{besoin:0,envie:0,total:0,n:0};
@@ -549,7 +555,7 @@ function renderNav(){
 function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
-  const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
+  const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
   m.innerHTML=v();
   updateTop();
   if(UI.tab==="dash") drawBars("barsDash");
@@ -1185,7 +1191,7 @@ function viewIA(){
 function miniRank(byCat,total,col){ const rows=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
   if(!rows.length) return `<div class="muted" style="font-size:12.5px;padding:4px 0">Rien sur cette période.</div>`;
   const max=rows[0][1];
-  return rows.map(r=>`<div class="bbar"><div class="top"><span>${catEmoji(r[0])} <b>${r[0]}</b></span><span><b>${eur0(r[1])}</b> <span class="muted">(${total?Math.round(r[1]/total*100):0}%)</span></span></div>
+  return rows.map(r=>`<div class="bbar"><div class="top"><span>${catEmoji(r[0].split(" / ")[0])} <b>${r[0]}</b></span><span><b>${eur0(r[1])}</b> <span class="muted">(${total?Math.round(r[1]/total*100):0}%)</span></span></div>
     <div class="track"><div class="fill" style="width:${Math.max(r[1]/max*100,3)}%;background:${col}"></div></div></div>`).join(""); }
 function viewRapport(){
   const m = UI.month==="all" ? new Date().getMonth() : UI.month;
@@ -1245,7 +1251,7 @@ function viewRapport(){
     ${miniRank(split.byCatB,split.total,'var(--neg)')}
     <div style="font-weight:800;margin:14px 0 6px;color:var(--warn)">🎈 Non essentielles (leviers d'économie) — ${eur0(split.envie)}</div>
     ${miniRank(split.byCatE,split.total,'var(--warn)')}
-    <div class="muted" style="font-size:11.5px;margin-top:10px">Tu décides ce qui est essentiel ou non dans <b>Réglages → Catégories</b> (case « essentiel »).</div>
+    <button class="btn ghost sm" onclick="go('besoins')" style="margin-top:12px">✂️ Choisir ce qui est essentiel (catégories & sous-catégories) →</button>
   </div>
 
   <div class="card"><h2>⏩ FUTUR — prévisions</h2>
@@ -1264,6 +1270,25 @@ function viewRapport(){
   </div>`:""}
 
   <button class="btn ghost" onclick="go('ia')" style="margin-top:4px">← Retour à l'Assistant</button>`;
+}
+/* ----- Classer essentiel / non essentiel (catégories + sous-catégories) ----- */
+function besoinToggle(checked,onChange){ return `<label class="switch"><input type="checkbox" ${checked?'checked':''} onchange="${onChange}"><span class="sl"></span></label>`; }
+function viewBesoins(){
+  const cats=DB.categories.filter(c=>c.active);
+  const blocks=cats.map(c=>{ const i=DB.categories.indexOf(c); const catEss=catBesoin(c.name);
+    const subRows=(c.subs||[]).map(s=>{ const eff=besoinOf(c.name,s); const explicite=!!(c.subsBesoin&&typeof c.subsBesoin[s]==="boolean");
+      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid var(--line)">
+        <span style="flex:1">${s} ${explicite?'':'<span class="muted" style="font-size:10.5px">(suit la catégorie)</span>'}</span>
+        <span style="font-size:11px;color:${eff?'var(--pos)':'var(--warn)'};font-weight:700;min-width:74px;text-align:right">${eff?'essentiel':'non essentiel'}</span>
+        ${besoinToggle(eff,`setSubBesoin(${i},'${s.replace(/'/g,"\\'")}',this.checked)`)}</div>`;}).join("");
+    return `<div class="card"><h2>${c.emoji} ${c.name}
+        <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:${catEss?'var(--pos)':'var(--warn)'};font-weight:700">${catEss?'essentiel':'non essentiel'} ${besoinToggle(catEss,`setCatBesoin(${i},this.checked)`)}</span></h2>
+      <div class="muted" style="font-size:11.5px;margin:-4px 0 6px">Réglage de la catégorie entière. Chaque sous-catégorie le suit, sauf si tu la précises ci-dessous.</div>
+      ${subRows||'<div class="muted" style="font-size:12px">Aucune sous-catégorie.</div>'}</div>`;}).join("");
+  return `<div class="pagehead">✂️ Essentiel / non essentiel</div>
+  <div class="card"><div class="muted" style="font-size:12.5px">Choisis ce qui est <b class="pos">essentiel</b> (un besoin : santé, courses, voiture…) ou <b class="warn">non essentiel</b> (une envie : beauté, loisirs, sorties…). Tu peux régler une catégorie entière <b>et</b> préciser sous-catégorie par sous-catégorie. Ça alimente directement ton <b>rapport mensuel</b>.</div></div>
+  ${blocks}
+  <button class="btn ghost" onclick="go('rapport')" style="margin-top:4px">← Retour au rapport</button>`;
 }
 
 /* ===================== HORAIRES ===================== */
@@ -1455,7 +1480,8 @@ function viewReglages(){
     ${cats}
     <div class="row2" style="margin-top:14px"><div class="field" style="margin:0"><input id="ncEmoji" class="emoji" placeholder="🏷️" style="width:100%"></div>
       <div class="field" style="margin:0"><input id="ncName" placeholder="Nom de la nouvelle catégorie"></div></div>
-    <button class="btn ghost sm" onclick="addCat()" style="margin-top:8px">+ Ajouter la catégorie</button></div>
+    <button class="btn ghost sm" onclick="addCat()" style="margin-top:8px">+ Ajouter la catégorie</button>
+    <button class="btn ghost sm" onclick="go('besoins')" style="margin-top:8px">✂️ Classer essentiel / non essentiel (détail par sous-catégorie) →</button></div>
   <div class="card"><h2>☁️ Synchronisation</h2>
     ${ sb && SB_USER
       ? `<div class="muted" style="font-size:13px;margin-bottom:10px">Connectée en tant que <b style="color:var(--text)">${SB_USER.email}</b>.<br>Tes données sont synchronisées dans le cloud ${syncState==="error"?'<span class="neg">(⚠️ dernière synchro en erreur)</span>':'✅'} et partagées entre tous tes appareils.</div>
@@ -1523,7 +1549,7 @@ window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;window.addFiche=addFiche;window.viewFiche=viewFiche;window.delFiche=delFiche;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
-window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;
+window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 /* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
 function effectiveDark(){ const t=STORE.get("theme"); if(t==="dark")return true; if(t==="light")return false;
