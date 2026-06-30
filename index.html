@@ -258,7 +258,6 @@ function ensureDefaults(){
   if(!Array.isArray(DB.future)) DB.future=[];
   if(!Array.isArray(DB.cashCounts)) DB.cashCounts=[];
   if(!Array.isArray(DB.horaires)) DB.horaires=[];
-  if(!Array.isArray(DB.fiches)) DB.fiches=[];
   if(!Array.isArray(DB.objectifs)) DB.objectifs=[];
   if(DB.contratHebdo==null) DB.contratHebdo=42;
   DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
@@ -1328,7 +1327,7 @@ function viewHoraires(){
     const horaires = worked ? ents.map(x=>`${x.debut} – ${x.fin}`).join('<br>') : '<span style="color:var(--muted)">repos</span>';
     dayRows+=`<div onclick="planAdd('${iso}')" title="Cliquer pour saisir" style="cursor:pointer;display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:11px;margin-bottom:6px;background:var(--surface-2);border:1px solid var(--line);${isToday?'box-shadow:0 0 0 2px var(--accent)':''}">
       <span style="width:6px;align-self:stretch;border-radius:4px;background:${worked?'var(--accent)':'var(--line)'};flex:none"></span>
-      <div style="flex:1"><div style="font-weight:700;text-transform:capitalize">${jourNom(iso)} ${d.getDate()}/${String(d.getMonth()+1).padStart(2,"0")}</div>${isToday?'<div style="font-size:10.5px;color:var(--accent);font-weight:700">aujourd\'hui</div>':''}</div>
+      <div style="flex:1"><div style="font-weight:700;text-transform:capitalize">${jourNom(iso)} ${d.getDate()}/${String(d.getMonth()+1).padStart(2,"0")}${ents.some(x=>x.remplacement)?' 🔁':''}</div>${isToday?'<div style="font-size:10.5px;color:var(--accent);font-weight:700">aujourd\'hui</div>':''}</div>
       <div style="font-weight:800;font-size:14px;text-align:right;color:${worked?'var(--text)':'var(--muted)'};line-height:1.35">${horaires}</div></div>`;
   }
   const last=new Date(monday); last.setDate(monday.getDate()+6);
@@ -1362,6 +1361,21 @@ function viewHoraires(){
       :`<div class="empty">Saisis des journées pour voir ton récap mensuel.</div>`}
   </div>`;
 
+  /* ---------- REMPLACEMENTS (heures en plus) ---------- */
+  const rempls=list.filter(x=>x.remplacement);
+  const remplTot=rempls.reduce((s,x)=>s+hoursOf(x),0);
+  const remplPlus=rempls.reduce((s,x)=>s+Math.max(0,hoursOf(x)-prevu),0);
+  const remplMois=rempls.filter(x=>(x.date||"").slice(0,7)===ym).reduce((s,x)=>s+hoursOf(x),0);
+  const remplRows=rempls.slice(0,12).map(x=>{const h=hoursOf(x),plus=Math.max(0,h-prevu);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line)">
+      <span style="font-size:16px">🔁</span>
+      <div style="flex:1"><div style="font-weight:700;text-transform:capitalize">${jourNom(x.date)} ${frDate(x.date)}</div>
+        <div class="muted" style="font-size:11.5px">${x.debut}–${x.fin}${x.note?' · '+x.note:''}</div></div>
+      <div style="text-align:right"><div style="font-weight:800">${fmtH(h)}</div>${plus>0?`<div style="font-size:11px;color:var(--pos)">+${fmtH(plus)} en plus</div>`:''}</div></div>`;}).join("");
+  const remplHTML=rempls.length?`<div class="card"><h2>🔁 Remplacements <span style="margin-left:auto;font-size:13px">${fmtH(remplTot)}${remplPlus>0?` · <span style="color:var(--pos)">+${fmtH(remplPlus)} en plus</span>`:''}</span></h2>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">${rempls.length} journée${rempls.length>1?'s':''} de remplacement${remplMois>0?` · ${fmtH(remplMois)} ce mois-ci`:''}. « En plus » = heures au-delà de ta référence de ${fmtH(prevu)}/jour.</div>
+    ${remplRows}${rempls.length>12?`<div class="muted" style="font-size:11px;margin-top:8px">… et ${rempls.length-12} autre${rempls.length-12>1?'s':''}.</div>`:''}</div>`:'';
+
   /* ---------- DÉTAIL PAR SEMAINE ---------- */
   const byWeek={}; list.forEach(x=>{(byWeek[weekKey(x.date)]=byWeek[weekKey(x.date)]||[]).push(x);});
   const weeks=Object.keys(byWeek).sort((a,b)=>b.localeCompare(a)).slice(0,10);
@@ -1369,31 +1383,12 @@ function viewHoraires(){
     const rows=es.sort((a,b)=>b.date.localeCompare(a.date)).map(x=>{const h=hoursOf(x),d=h-prevu;
       return `<div style="display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line)">
         <span style="width:9px;height:9px;border-radius:50%;background:${hColor(h)};flex:none"></span>
-        <div style="flex:1"><div style="font-weight:700;text-transform:capitalize">${jourNom(x.date)} ${frDate(x.date)}</div>
+        <div style="flex:1"><div style="font-weight:700;text-transform:capitalize">${jourNom(x.date)} ${frDate(x.date)}${x.remplacement?' <span class="tag" style="background:var(--accent);color:#fff;font-size:9.5px">🔁 remplacement</span>':''}</div>
           <div class="muted" style="font-size:11.5px">${x.debut}–${x.fin}${x.pause?` · coupure ${x.pause} min`:''}${x.note?' · '+x.note:''}</div></div>
         <div style="text-align:right"><div style="font-weight:800">${fmtH(h)}</div><div style="font-size:11px;color:${d>=0?'var(--pos)':'var(--neg)'}">${d>=0?'+':''}${fmtH(d)}</div></div>
         <button class="del" onclick="horEdit('${x.id}')">✏️</button><button class="del" onclick="delHoraire('${x.id}')">🗑️</button></div>`;}).join("");
     const wp=w.split("-"); return `<div class="card"><h2>Semaine du ${wp[2]}/${wp[1]} <span style="margin-left:auto;font-size:13px">${fmtH(tot)} <span style="color:${diff>=0?'var(--pos)':'var(--neg)'};font-weight:700">(${diff>=0?'+':''}${fmtH(diff)})</span></span></h2>${rows}</div>`;
   }).join("");
-
-  /* ---------- FICHES DE PAIE ---------- */
-  const fiches=(DB.fiches||[]).slice().sort((a,b)=>(b.mois||"").localeCompare(a.mois||""));
-  const fichesRows=fiches.map(f=>{const mp=(f.mois||"").split("-");
-    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid var(--line)">
-      <span style="font-size:20px">${(f.type||'').includes('pdf')?'📄':'🖼️'}</span>
-      <div style="flex:1;min-width:0"><div style="font-weight:700;text-transform:capitalize">${mp[1]?MOISNOM[+mp[1]-1]+' '+mp[0]:(f.name||'Fiche')}</div>
-        <div class="muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.name||''} · ${fmtKo(f.size)}</div></div>
-      <button class="del" onclick="viewFiche('${f.id}')" title="Ouvrir">👁️</button>
-      <button class="del" onclick="delFiche('${f.id}')">🗑️</button></div>`;}).join("");
-  const fichesHTML=`<div class="card"><h2>💶 Fiches de paie</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Dépose tes fiches de paie (PDF ou photo). Elles restent dans ton app et se synchronisent avec tes autres appareils.</div>
-    <div class="row2" style="align-items:end">
-      <div class="field" style="margin:0"><label>Mois de la fiche</label><input id="fpMois" type="month" value="${ym}"></div>
-      <div class="field" style="margin:0"><button class="btn ghost sm" onclick="document.getElementById('ficheInput').click()" style="width:100%">📎 Choisir un fichier</button></div>
-    </div>
-    <input id="ficheInput" type="file" accept="application/pdf,image/*" style="display:none" onchange="addFiche(this)">
-    <div style="margin-top:12px">${fichesRows||'<div class="empty">Aucune fiche de paie pour le moment.</div>'}</div>
-  </div>`;
 
   return `<div class="pagehead">🕐 Horaires</div>
   <div class="grid kpis" style="margin-bottom:16px">
@@ -1410,7 +1405,10 @@ function viewHoraires(){
       ? `<div class="field"><label>Coupure (min) <span class="muted" style="font-weight:400">— facultatif</span></label><input id="hPause" type="number" min="0" step="5" placeholder="0" value="${e.pause||''}"></div>`
       : `<input id="hPause" type="hidden" value="">
          <button class="btn ghost sm" onclick="UI.horPause=true;render()" style="margin-bottom:12px">➕ J'ai eu une coupure</button>`}
-    <div class="field"><label>Note (facultatif)</label><input id="hNote" placeholder="Ex : remplacement, formation…" value="${(e.note||'').replace(/"/g,'&quot;')}"></div>
+    <div class="field"><label>Note (facultatif)</label><input id="hNote" placeholder="Ex : formation, réunion…" value="${(e.note||'').replace(/"/g,'&quot;')}"></div>
+    <label style="display:flex;align-items:center;gap:10px;margin:2px 0 14px;cursor:pointer;font-weight:600">
+      <input id="hRempl" type="checkbox" ${e.remplacement?'checked':''} style="width:19px;height:19px;flex:none;accent-color:var(--accent)">
+      <span>🔁 C'était un remplacement <span class="muted" style="font-weight:400;font-size:12px">(pour suivre tes heures en plus)</span></span></label>
     <button class="btn" onclick="saveHoraire()">${editing?"💾 Enregistrer":"✅ Ajouter"}</button>
     ${editing?`<button class="btn ghost" onclick="UI.horEdit=null;UI.horPause=false;render()" style="margin-top:8px">Annuler</button>`:""}
     <div class="row2" style="margin-top:14px;align-items:end">
@@ -1418,14 +1416,14 @@ function viewHoraires(){
       <div class="field" style="margin:0"><label>Référence +/− par jour</label><input type="number" min="0" step="0.5" value="${prevu}" onchange="setPrevu(this.value)"></div></div>
   </div>
   ${tableauHTML}
-  ${fichesHTML}
+  ${remplHTML}
   ${weeksHTML||'<div class="card"><div class="empty">Aucune journée enregistrée. Ajoute-en une ci-dessus 👆</div></div>'}`;
 }
 function saveHoraire(){
   const date=document.getElementById("hDate").value, debut=document.getElementById("hDebut").value, fin=document.getElementById("hFin").value;
   if(!date||!debut||!fin){toast("Date, début et fin requis");return;}
   const eid=(UI.horEdit&&UI.horEdit.id)?UI.horEdit.id:null;
-  const obj={id:eid||uid(),date,debut,fin,pause:parseInt(document.getElementById("hPause").value)||0,note:document.getElementById("hNote").value.trim()};
+  const obj={id:eid||uid(),date,debut,fin,pause:parseInt(document.getElementById("hPause").value)||0,note:document.getElementById("hNote").value.trim(),remplacement:!!(document.getElementById("hRempl")&&document.getElementById("hRempl").checked)};
   if(eid){ const i=DB.horaires.findIndex(x=>x.id===eid); if(i>=0)DB.horaires[i]=obj; } else DB.horaires.push(obj);
   UI.horEdit=null; UI.horPause=false; save(); toast(fmtH(hoursOf(obj))+" enregistré ✅"); render();
 }
@@ -1436,21 +1434,6 @@ function setContrat(v){ const n=parseFloat(String(v).replace(",",".")); if(isNaN
 /* semainier : navigation de semaine (±7j) + clic sur un jour pour le pré-saisir */
 function planMove(d){ const base=UI.planWeek||weekKey(todayISO()); const p=base.split("-").map(Number); const dt=new Date(p[0],p[1]-1,p[2]+d*7); UI.planWeek=weekKey(dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0")); render(); }
 function planAdd(iso){ UI.horEdit={date:iso}; UI.horPause=false; render(); window.scrollTo(0,0); }
-/* ---- fiches de paie ---- */
-function fmtKo(b){ b=b||0; return b<1024?b+" o":b<1048576?(b/1024).toFixed(0)+" Ko":(b/1048576).toFixed(1)+" Mo"; }
-function addFiche(input){ const f=input.files&&input.files[0]; if(!f)return;
-  if(f.size>4*1024*1024){ toast("Fichier trop lourd (max 4 Mo)"); input.value=""; return; }
-  const mois=document.getElementById("fpMois").value||todayISO().slice(0,7);
-  const r=new FileReader(); r.onload=()=>{ DB.fiches.push({id:uid(),mois,name:f.name,type:f.type,size:f.size,data:r.result,added:todayISO()}); save(); toast("Fiche de paie ajoutée ✅"); render(); };
-  r.readAsDataURL(f); input.value="";
-}
-function viewFiche(id){ const f=(DB.fiches||[]).find(x=>x.id===id); if(!f)return;
-  const w=window.open(""); if(!w){toast("Autorise les pop-ups pour ouvrir");return;}
-  if((f.type||"").includes("pdf")) w.document.write(`<iframe src="${f.data}" style="border:0;width:100vw;height:100vh"></iframe>`);
-  else w.document.write(`<img src="${f.data}" style="max-width:100%">`);
-  w.document.title=f.name||"Fiche de paie";
-}
-function delFiche(id){ const f=(DB.fiches||[]).find(x=>x.id===id); if(!f)return; if(!confirm("Supprimer cette fiche de paie ?"))return; DB.fiches=DB.fiches.filter(x=>x.id!==id); save(); render(); }
 
 /* ===================== RÉGLAGES ===================== */
 function viewReglages(){
@@ -1547,7 +1530,7 @@ window.futureCancel=futureCancel;window.futureDelete=futureDelete;window.futureE
 window.openCompteur=openCompteur;window.recalcCaisse=recalcCaisse;window.saveCaisse=saveCaisse;window.nextRecount=nextRecount;
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
-window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;window.addFiche=addFiche;window.viewFiche=viewFiche;window.delFiche=delFiche;
+window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
