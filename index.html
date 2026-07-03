@@ -258,6 +258,7 @@ function ensureDefaults(){
   if(!Array.isArray(DB.future)) DB.future=[];
   if(!Array.isArray(DB.cashCounts)) DB.cashCounts=[];
   if(!Array.isArray(DB.horaires)) DB.horaires=[];
+  if(!Array.isArray(DB.vacances)) DB.vacances=[];
   if(!Array.isArray(DB.objectifs)) DB.objectifs=[];
   if(DB.contratHebdo==null) DB.contratHebdo=42;
   DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
@@ -1306,6 +1307,13 @@ function prevuMois(ym){ return contratHebdo()*daysInMonth(ym)/7; }
 const MOISNOM=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 /* couleur d'une journée selon le nb d'heures (heatmap) */
 function hColor(h){ if(h<=0)return "transparent"; if(h<4)return "var(--info)"; if(h<7)return "#0ea5e9"; if(h<9)return "var(--pos)"; if(h<11)return "var(--warn)"; return "var(--neg)"; }
+/* vacances : une période = {id, du, au, note} (dates ISO incluses) */
+function vacOf(iso){ return (DB.vacances||[]).find(v=>v.du<=iso&&iso<=v.au); }
+function vacDays(v){ const a=v.du.split("-").map(Number),b=v.au.split("-").map(Number);
+  return Math.round((new Date(b[0],b[1]-1,b[2])-new Date(a[0],a[1]-1,a[2]))/864e5)+1; }
+/* nb de jours d'une période tombant dans une année donnée */
+function vacDaysInYear(v,year){ const y0=year+"-01-01",y1=year+"-12-31"; const du=v.du>y0?v.du:y0, au=v.au<y1?v.au:y1;
+  return du>au?0:vacDays({du,au}); }
 function viewHoraires(){
   const e=UI.horEdit||{}; const prevu=prevuJour(), contrat=contratHebdo();
   const list=(DB.horaires||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
@@ -1323,10 +1331,12 @@ function viewHoraires(){
   for(let i=0;i<7;i++){ const d=new Date(monday); d.setDate(monday.getDate()+i);
     const iso=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
     const ents=(entByDate[iso]||[]).slice().sort((a,b)=>(a.debut||"").localeCompare(b.debut||""));
-    const isToday=iso===todayISO(); const worked=ents.length>0;
-    const horaires = worked ? ents.map(x=>`${x.debut} – ${x.fin}`).join('<br>') : '<span style="color:var(--muted)">repos</span>';
+    const isToday=iso===todayISO(); const worked=ents.length>0; const vac=vacOf(iso);
+    const horaires = worked ? ents.map(x=>`${x.debut} – ${x.fin}`).join('<br>')
+      : vac ? '<span style="color:var(--warn);font-weight:700">🏖️ vacances</span>'
+      : '<span style="color:var(--muted)">repos</span>';
     dayRows+=`<div onclick="planAdd('${iso}')" title="Cliquer pour saisir" style="cursor:pointer;display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:11px;margin-bottom:6px;background:var(--surface-2);border:1px solid var(--line);${isToday?'box-shadow:0 0 0 2px var(--accent)':''}">
-      <span style="width:6px;align-self:stretch;border-radius:4px;background:${worked?'var(--accent)':'var(--line)'};flex:none"></span>
+      <span style="width:6px;align-self:stretch;border-radius:4px;background:${worked?'var(--accent)':vac?'var(--warn)':'var(--line)'};flex:none"></span>
       <div style="flex:1"><div style="font-weight:700;text-transform:capitalize">${jourNom(iso)} ${d.getDate()}/${String(d.getMonth()+1).padStart(2,"0")}${ents.some(x=>x.remplacement)?' 🔁':''}</div>${isToday?'<div style="font-size:10.5px;color:var(--accent);font-weight:700">aujourd\'hui</div>':''}</div>
       <div style="font-weight:800;font-size:14px;text-align:right;color:${worked?'var(--text)':'var(--muted)'};line-height:1.35">${horaires}</div></div>`;
   }
@@ -1376,6 +1386,32 @@ function viewHoraires(){
     <div class="muted" style="font-size:12px;margin-bottom:10px">${rempls.length} journée${rempls.length>1?'s':''} de remplacement${remplMois>0?` · ${fmtH(remplMois)} ce mois-ci`:''}. « En plus » = heures au-delà de ta référence de ${fmtH(prevu)}/jour.</div>
     ${remplRows}${rempls.length>12?`<div class="muted" style="font-size:11px;margin-top:8px">… et ${rempls.length-12} autre${rempls.length-12>1?'s':''}.</div>`:''}</div>`:'';
 
+  /* ---------- VACANCES (congés posés) ---------- */
+  const ve=UI.vacEdit||{}; const vacEditing=!!(UI.vacEdit&&UI.vacEdit.id);
+  const vacs=(DB.vacances||[]).slice().sort((a,b)=>(b.du||"").localeCompare(a.du||""));
+  const annee=+todayISO().slice(0,4);
+  const poses=vacs.reduce((s,v)=>s+vacDaysInYear(v,annee),0);
+  const quota=DB.congesAnnuels!=null?DB.congesAnnuels:0;
+  const today=todayISO();
+  const vacRows=vacs.map(v=>{const nb=vacDays(v); const encours=v.du<=today&&today<=v.au; const futur=v.du>today;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line);${!encours&&!futur?'opacity:.6':''}">
+      <span style="font-size:16px">🏖️</span>
+      <div style="flex:1"><div style="font-weight:700">${v.du===v.au?`Le ${frDate(v.du)}`:`Du ${frDate(v.du)} au ${frDate(v.au)}`}
+        ${encours?' <span class="tag" style="background:var(--warn);color:#fff;font-size:9.5px">en cours</span>':futur?' <span class="tag" style="background:var(--accent);color:#fff;font-size:9.5px">à venir</span>':''}</div>
+        ${v.note?`<div class="muted" style="font-size:11.5px">${v.note}</div>`:''}</div>
+      <div style="font-weight:800;white-space:nowrap">${nb} j</div>
+      <button class="del" onclick="vacEdit('${v.id}')">✏️</button><button class="del" onclick="delVac('${v.id}')">🗑️</button></div>`;}).join("");
+  const vacHTML=`<div class="card"><h2>🏖️ Vacances <span style="margin-left:auto;font-size:13px">${poses} j posé${poses>1?'s':''} en ${annee}${quota>0?` <span style="color:${quota-poses>=0?'var(--pos)':'var(--neg)'}">· reste ${quota-poses} j</span>`:''}</span></h2>
+    <div class="row2"><div class="field"><label>Du</label><input id="vDu" type="date" value="${ve.du||todayISO()}"></div>
+      <div class="field"><label>Au (inclus)</label><input id="vAu" type="date" value="${ve.au||todayISO()}"></div></div>
+    <div class="field"><label>Note (facultatif)</label><input id="vNote" placeholder="Ex : été, Noël…" value="${(ve.note||'').replace(/"/g,'&quot;')}"></div>
+    <button class="btn" onclick="saveVac()">${vacEditing?"💾 Enregistrer":"✅ Poser ces vacances"}</button>
+    ${vacEditing?`<button class="btn ghost" onclick="UI.vacEdit=null;render()" style="margin-top:8px">Annuler</button>`:""}
+    ${vacRows?`<div style="margin-top:14px">${vacRows}</div>`:`<div class="empty" style="margin-top:12px">Aucune période enregistrée.</div>`}
+    <div class="field" style="margin-top:14px"><label>Droit aux congés (jours / an) <span class="muted" style="font-weight:400">— facultatif, pour voir ce qu'il te reste</span></label>
+      <input type="number" min="0" step="0.5" value="${quota||''}" placeholder="Ex : 25" onchange="setConges(this.value)"></div>
+  </div>`;
+
   /* ---------- DÉTAIL PAR SEMAINE ---------- */
   const byWeek={}; list.forEach(x=>{(byWeek[weekKey(x.date)]=byWeek[weekKey(x.date)]||[]).push(x);});
   const weeks=Object.keys(byWeek).sort((a,b)=>b.localeCompare(a)).slice(0,10);
@@ -1415,6 +1451,7 @@ function viewHoraires(){
       <div class="field" style="margin:0"><label>Contrat (h / semaine)</label><input type="number" min="0" step="0.5" value="${contrat}" onchange="setContrat(this.value)"></div>
       <div class="field" style="margin:0"><label>Référence +/− par jour</label><input type="number" min="0" step="0.5" value="${prevu}" onchange="setPrevu(this.value)"></div></div>
   </div>
+  ${vacHTML}
   ${tableauHTML}
   ${remplHTML}
   ${weeksHTML||'<div class="card"><div class="empty">Aucune journée enregistrée. Ajoute-en une ci-dessus 👆</div></div>'}`;
@@ -1430,6 +1467,18 @@ function saveHoraire(){
 function horEdit(id){ UI.horEdit=(DB.horaires||[]).find(x=>x.id===id); UI.horPause=!!(UI.horEdit&&UI.horEdit.pause>0); render(); window.scrollTo(0,0); }
 function delHoraire(id){ if(!confirm("Supprimer cette journée ?"))return; DB.horaires=DB.horaires.filter(x=>x.id!==id); save(); render(); }
 function setPrevu(v){ const n=parseFloat(String(v).replace(",",".")); if(isNaN(n))return; DB.heuresPrevuesJour=n; save(); render(); }
+function saveVac(){
+  let du=document.getElementById("vDu").value, au=document.getElementById("vAu").value;
+  if(!du||!au){toast("Dates de début et de fin requises");return;}
+  if(au<du){const t=du;du=au;au=t;}
+  const eid=(UI.vacEdit&&UI.vacEdit.id)?UI.vacEdit.id:null;
+  const obj={id:eid||uid(),du,au,note:document.getElementById("vNote").value.trim()};
+  if(eid){ const i=DB.vacances.findIndex(x=>x.id===eid); if(i>=0)DB.vacances[i]=obj; } else DB.vacances.push(obj);
+  UI.vacEdit=null; save(); toast(vacDays(obj)+" jour"+(vacDays(obj)>1?"s":"")+" de vacances enregistré"+(vacDays(obj)>1?"s":"")+" 🏖️"); render();
+}
+function vacEdit(id){ UI.vacEdit=(DB.vacances||[]).find(x=>x.id===id); render(); window.scrollTo(0,0); }
+function delVac(id){ if(!confirm("Supprimer cette période de vacances ?"))return; DB.vacances=DB.vacances.filter(x=>x.id!==id); save(); render(); }
+function setConges(v){ const n=parseFloat(String(v).replace(",",".")); DB.congesAnnuels=isNaN(n)?null:n; save(); render(); }
 function setContrat(v){ const n=parseFloat(String(v).replace(",",".")); if(isNaN(n))return; DB.contratHebdo=n; save(); render(); }
 /* semainier : navigation de semaine (±7j) + clic sur un jour pour le pré-saisir */
 function planMove(d){ const base=UI.planWeek||weekKey(todayISO()); const p=base.split("-").map(Number); const dt=new Date(p[0],p[1]-1,p[2]+d*7); UI.planWeek=weekKey(dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0")); render(); }
@@ -1530,6 +1579,7 @@ window.futureCancel=futureCancel;window.futureDelete=futureDelete;window.futureE
 window.openCompteur=openCompteur;window.recalcCaisse=recalcCaisse;window.saveCaisse=saveCaisse;window.nextRecount=nextRecount;
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
+window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setConges=setConges;
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
