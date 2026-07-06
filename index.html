@@ -112,6 +112,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Ar
 .sugg.show{display:flex}
 .sugg b{color:var(--accent)}
 .sugg .apply{margin-left:auto;background:var(--accent);color:#fff;border:none;padding:7px 12px;border-radius:9px;font-weight:700;cursor:pointer;font-size:12.5px}
+.libwrap{position:relative}
+.libdrop{position:absolute;top:100%;left:0;right:0;z-index:30;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 26px rgba(0,0,0,.18);max-height:250px;overflow:auto;display:none;margin-top:4px}
+.libdrop.show{display:block}
+.libdrop .it{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;font-size:13.5px;border-bottom:1px solid var(--line)}
+.libdrop .it:last-child{border-bottom:none}
+.libdrop .it:active,.libdrop .it:hover{background:var(--accent-soft)}
+.libdrop .it .c{margin-left:auto;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%}
 .txlist{display:flex;flex-direction:column;gap:2px}
 .tx{display:flex;align-items:center;gap:11px;padding:11px 4px;border-bottom:1px solid var(--line)}
 .tx:last-child{border-bottom:none}
@@ -260,6 +267,10 @@ function ensureDefaults(){
   if(!Array.isArray(DB.horaires)) DB.horaires=[];
   if(!Array.isArray(DB.vacances)) DB.vacances=[];
   if(!Array.isArray(DB.objectifs)) DB.objectifs=[];
+  if(!Array.isArray(DB.libelles)) DB.libelles=[];
+  if(!DB.trained||typeof DB.trained!=="object") DB.trained={};
+  if(!DB.paye||typeof DB.paye!=="object") DB.paye={montant:0,lines:[]};
+  if(!Array.isArray(DB.paye.lines)) DB.paye.lines=[];
   if(DB.contratHebdo==null) DB.contratHebdo=42;
   DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
   if(!Array.isArray(DB.cryptoTrack)){ DB.cryptoTrack=[{id:"sb",nom:"Swissborg",history:[]},{id:"av",nom:"Assurance vie",history:[]}]; DB.avSeeded=true; }
@@ -472,7 +483,7 @@ const Categoriseur = {
   ],
   guess(note){
     const n=(note||"").trim().toLowerCase(); if(!n) return null;
-    const trained=APPDATA.reference.trained||{};
+    const trained=Object.assign({},APPDATA.reference.trained||{},(DB&&DB.trained)||{});
     if(trained[n]) return {cat:trained[n][0],sub:trained[n][1],src:"historique"};
     for(const k in trained){ if(n.includes(k)||k.includes(n)) return {cat:trained[k][0],sub:trained[k][1],src:"historique"}; }
     for(const [re,res] of this.rules){ if(re.test(n)) return {cat:res[0],sub:res[1],src:"règle"}; }
@@ -725,9 +736,10 @@ function viewSaisie(){
       <div class="field"><label>Observation (facultatif — n'apparaît pas dans la liste)</label><textarea id="fObs" rows="2" placeholder="Une note perso pour t'en souvenir…">${(e.observation||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea></div>`;
   } else {
     body=common+`
-      <div class="field"><label>Libellé / commerçant</label>
-        <input id="fNote" list="merchants" placeholder="Ex : Esso, Amazon, Carrefour…" value="${(e.note||'').replace(/"/g,'&quot;')}">
-        <datalist id="merchants">${APPDATA.reference.merchants.map(m=>`<option value="${m}">`).join("")}</datalist></div>
+      <div class="field libwrap"><label>Libellé / commerçant</label>
+        <input id="fNote" autocomplete="off" placeholder="Ex : Esso, Amazon, Carrefour…" value="${(e.note||'').replace(/"/g,'&quot;')}">
+        <div class="libdrop" id="libDrop"></div></div>
+      <div id="libStar"></div>
       <div class="sugg" id="sugg"></div>
       <div class="row2">
         <div class="field"><label>Catégorie</label><select id="fCat" onchange="onCatChange()">${catOptions(e.categorie)}</select></div>
@@ -764,14 +776,56 @@ function setType(t){
   UI.type=t; render();
 }
 function onCatChange(){ const c=document.getElementById("fCat").value; document.getElementById("fSub").innerHTML=subOptions(c,""); }
+function escH(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;"); }
+/* tous les libellés connus : ma liste (⭐) + tout ce que j'ai déjà saisi (avec la catégorie utilisée) */
+function libPool(){
+  const map=new Map();
+  (DB.libelles||[]).forEach(l=>{ const txt=(l.txt||"").trim(); if(txt) map.set(txt.toLowerCase(),{txt,cat:l.cat||"",sub:l.sub||"",n:0,star:true}); });
+  DB.transactions.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||"")).forEach(t=>{
+    if(t.type==="transfer") return; const txt=(t.note||"").trim(); if(!txt) return; const k=txt.toLowerCase();
+    const e=map.get(k);
+    if(e){ e.n++; if(!e.star&&t.categorie){ e.cat=t.categorie; e.sub=t.sousCategorie||""; } }
+    else map.set(k,{txt,cat:t.categorie||"",sub:t.sousCategorie||"",n:1,star:false});
+  });
+  return [...map.values()];
+}
 function bindSaisie(){
   const note=document.getElementById("fNote"); if(!note||UI.type==="tr") return;
-  const run=()=>{ const g=Categoriseur.guess(note.value); const box=document.getElementById("sugg"); if(!box)return;
+  const drop=document.getElementById("libDrop");
+  const runSugg=()=>{ const g=Categoriseur.guess(note.value); const box=document.getElementById("sugg"); if(!box)return;
     if(g&&catObj(g.cat)){ box.classList.add("show");
       box.innerHTML=`🤖 <span>Le Catégoriseur propose <b>${g.cat}${g.sub?" / "+g.sub:""}</b> <span class="muted">(${g.src})</span></span>
         <button class="apply" onclick="applySugg('${g.cat.replace(/'/g,"\\'")}','${(g.sub||'').replace(/'/g,"\\'")}')">Appliquer</button>`;
     } else box.classList.remove("show"); };
-  note.addEventListener("input",run); run();
+  const runStar=()=>{ const star=document.getElementById("libStar"); if(!star)return; const txt=note.value.trim();
+    const known=(DB.libelles||[]).some(l=>(l.txt||"").toLowerCase()===txt.toLowerCase());
+    star.innerHTML = (txt.length>=2&&!known)?`<button class="btn ghost sm" style="width:auto;margin:-4px 0 12px;padding:6px 11px" onclick="starLib()">⭐ Garder « ${escH(txt)} » dans ma liste de libellés</button>`:"";
+  };
+  const showDrop=()=>{ if(!drop)return; const q=note.value.trim().toLowerCase();
+    let items=libPool().filter(p=>{const t=p.txt.toLowerCase(); return q?(t.includes(q)&&t!==q):true;});
+    items.sort((a,b)=>(b.star-a.star)||(b.n-a.n)||a.txt.localeCompare(b.txt));
+    items=items.slice(0,7);
+    if(!items.length){ drop.classList.remove("show"); drop.innerHTML=""; return; }
+    drop.innerHTML=items.map((p,i)=>`<div class="it" data-i="${i}">${p.star?"⭐ ":""}${escH(p.txt)}<span class="c">${p.cat?escH(p.cat)+(p.sub?" / "+escH(p.sub):""):""}${p.n>1?` · ${p.n}×`:""}</span></div>`).join("");
+    drop.classList.add("show");
+    drop.querySelectorAll(".it").forEach(el=>el.addEventListener("mousedown",ev=>{ ev.preventDefault();
+      const p=items[+el.dataset.i]; note.value=p.txt;
+      if(p.cat&&catObj(p.cat)) applySugg(p.cat,p.sub||"");
+      drop.classList.remove("show"); runStar(); if(!p.cat) runSugg(); else { const box=document.getElementById("sugg"); if(box)box.classList.remove("show"); }
+    }));
+  };
+  note.addEventListener("input",()=>{ runSugg(); runStar(); showDrop(); });
+  note.addEventListener("focus",showDrop);
+  note.addEventListener("blur",()=>setTimeout(()=>{ if(drop)drop.classList.remove("show"); },150));
+  runSugg(); runStar();
+}
+function starLib(){
+  const note=document.getElementById("fNote"); if(!note)return; const txt=note.value.trim(); if(!txt)return;
+  if(!(DB.libelles||[]).some(l=>(l.txt||"").toLowerCase()===txt.toLowerCase())){
+    const cat=(document.getElementById("fCat")||{}).value||"", sub=(document.getElementById("fSub")||{}).value||"";
+    DB.libelles.push({txt,cat,sub}); save(); toast("⭐ « "+txt+" » ajouté à ta liste");
+  }
+  const star=document.getElementById("libStar"); if(star)star.innerHTML="";
 }
 function applySugg(cat,sub){ const cs=document.getElementById("fCat"); if(cs){cs.value=cat; document.getElementById("fSub").innerHTML=subOptions(cat,sub);} }
 function saveTx(){
@@ -795,6 +849,8 @@ function isCashAcct(id){ const a=acct(id); return !!(a&&a.type==="cash"); }
 function commit(obj,eid){
   if(eid){ const i=DB.transactions.findIndex(t=>t.id===eid); if(i>=0)DB.transactions[i]=obj; else DB.transactions.push(obj); toast("Modifié ✅"); }
   else { DB.transactions.push(obj); toast("Opération ajoutée ✅"); }
+  /* apprentissage : ce libellé → cette catégorie (reproposé la prochaine fois) */
+  if(obj.type!=="transfer"&&obj.note&&obj.categorie){ if(!DB.trained)DB.trained={}; DB.trained[obj.note.trim().toLowerCase()]=[obj.categorie,obj.sousCategorie||""]; }
   UI.edit=null; save();
   /* Après une opération espèces : ouvrir le recomptage du/des compte(s) concerné(s) */
   let cashAccts=[];
@@ -1089,6 +1145,7 @@ function viewBudget(){
     <span>${x.c.emoji} ${x.c.name} <span class="muted" style="font-size:11.5px">— ${eur0(x.s)} dépensés</span></span>
     <span style="font-size:11.5px">plafond : <input type="number" min="0" step="10" placeholder="0" value="" onchange="setCatBudget(${x.i},this.value)" style="width:78px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"> €</span></div>`).join("");
   return `<div class="pagehead">🎯 Mes enveloppes</div>${monthSelector()}
+  ${payeCardHTML(m)}
   <div class="card"><h2>Vue d'ensemble — ${MONTHS[m]}</h2>
     ${totB>0?`<div class="bbar"><div class="top"><span><b>Total dépensé</b></span><span style="color:${totS>totB?'var(--neg)':'var(--pos)'}">${eur0(totS)} <span class="muted">/ ${eur0(totB)} prévus</span></span></div>
       <div class="track"><div class="fill" style="width:${ratio}%;background:${totS>totB?'var(--neg)':'var(--accent)'}"></div></div></div>
@@ -1100,6 +1157,71 @@ function viewBudget(){
   ${!withB.length&&!noBudgetRows?'<div class="card"><div class="empty">Aucune dépense ce mois-ci. Saisis des opérations, puis fixe tes plafonds ici.</div></div>':""}`;
 }
 function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
+
+/* ===================== DÉCOUPER MA PAYE ===================== */
+function payeAmt(l){ const base=DB.paye.montant||0; return l.mode==="pct"? base*(l.val||0)/100 : (l.val||0); }
+function payeCardHTML(m){
+  const p=DB.paye, base=p.montant||0;
+  const revM=flowOf(m).rev;
+  const tot=p.lines.reduce((a,l)=>a+payeAmt(l),0), reste=base-tot;
+  const rows=p.lines.map(l=>{ const amt=payeAmt(l);
+    return `<div class="setrow" style="flex-wrap:wrap">
+      <input class="si" style="min-width:105px" value="${escH(l.nom)}" placeholder="Nom (ex : Livret A)" onchange="payeSet('${l.id}','nom',this.value)">
+      <select style="flex:1;min-width:130px" onchange="payeSet('${l.id}','dest',this.value)">
+        <option value="cc" ${l.dest==="cc"?"selected":""}>💼 Reste sur le compte</option>
+        ${DB.accounts.filter(a=>a.active&&a.id!=="cc").map(a=>`<option value="${a.id}" ${l.dest===a.id?"selected":""}>${a.emoji} ${a.name}</option>`).join("")}
+      </select>
+      <input class="mini" type="number" min="0" step="1" value="${l.val||""}" onchange="payeSet('${l.id}','val',this.value)">
+      <button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Basculer € / % de la paye" onclick="payeSet('${l.id}','mode','${l.mode==="pct"?"eur":"pct"}')">${l.mode==="pct"?"%":"€"}</button>
+      <b style="min-width:64px;text-align:right">${eur0(amt)}</b>
+      ${l.dest!=="cc"?`<button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Préparer le virement" onclick="payeTransfer('${l.id}')">⇄</button>`:""}
+      <button class="del" onclick="payeDel('${l.id}')">🗑️</button>
+    </div>`;}).join("");
+  const pct=base?Math.min(tot/base*100,100):0;
+  const footer=p.lines.length&&base?`<div class="bbar" style="margin-top:10px">
+      <div class="top"><span><b>Réparti</b></span><span style="color:${tot>base?'var(--neg)':'var(--pos)'}">${eur0(tot)} <span class="muted">/ ${eur0(base)}</span></span></div>
+      <div class="track"><div class="fill" style="width:${pct}%;background:${tot>base?'var(--neg)':'var(--accent)'}"></div></div>
+      <div class="muted" style="font-size:12.5px;margin-top:4px">${reste>=0?`Reste à répartir : <b class="pos">${eur0(reste)}</b>`:`⚠️ Tu répartis <b class="neg">${eur0(-reste)}</b> de plus que ta paye.`}</div>
+    </div>`:"";
+  return `<div class="card"><h2>💶 Découper ma paye</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Indique ta paye, puis répartis-la : ce qui reste sur le compte pour le quotidien, ce qui part sur le Livret A, la caisse, les placements… Le bouton <b>⇄</b> prépare le virement correspondant.</div>
+    <div class="row2" style="align-items:end">
+      <div class="field" style="margin:0"><label>Ma paye ce mois-ci (€)</label><input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${base||""}" onchange="setPaye(this.value)"></div>
+      <div>${revM>0&&Math.round(revM)!==Math.round(base)?`<button class="btn ghost sm" onclick="setPaye(${revM})">Utiliser mes entrées de ${MONTHS[m]} (${eur0(revM)})</button>`:"<span></span>"}</div>
+    </div>
+    ${rows?`<div style="margin-top:10px">${rows}</div>`:""}
+    ${footer}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn ghost sm" style="width:auto" onclick="payeAddLine()">➕ Ajouter une ligne</button>
+      ${!p.lines.length?`<button class="btn ghost sm" style="width:auto" onclick="payeProposer()">💡 Me proposer une découpe</button>`:""}
+    </div></div>`;
+}
+function setPaye(v){ DB.paye.montant=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
+function payeAddLine(){ DB.paye.lines.push({id:uid(),nom:"",dest:"cc",mode:"eur",val:0}); save(); render(); }
+function payeSet(id,f,v){ const l=DB.paye.lines.find(x=>x.id===id); if(!l)return;
+  if(f==="val") l.val=Math.max(0,parseFloat(String(v).replace(",","."))||0); else l[f]=v; save(); render(); }
+function payeDel(id){ DB.paye.lines=DB.paye.lines.filter(x=>x.id!==id); save(); render(); }
+function payeProposer(){
+  let base=DB.paye.montant||0;
+  if(!base){ base=Math.round(avgRevenu()); if(base) DB.paye.montant=base; }
+  if(!base){ toast("Indique d'abord le montant de ta paye 🙏"); return; }
+  const avg=avgMensuel();
+  const liv=DB.accounts.find(a=>a.id==="livretA"&&a.active)?"livretA":"cc";
+  const r10=x=>Math.max(0,Math.round(x/10)*10);
+  let ess=avg.total?Math.min(r10(avg.besoin),base):r10(base*0.5);
+  let env=avg.total?Math.min(r10(avg.envie),Math.max(0,base-ess)):r10(base*0.3);
+  const ep=Math.max(0,base-ess-env);
+  DB.paye.lines=[
+    {id:uid(),nom:"Essentiels du quotidien",dest:"cc",mode:"eur",val:ess},
+    {id:uid(),nom:"Plaisirs",dest:"cc",mode:"eur",val:env},
+    {id:uid(),nom:"Épargne",dest:liv,mode:"eur",val:ep}
+  ];
+  save(); render(); toast("Découpe proposée d'après ton train de vie 💡");
+}
+function payeTransfer(id){ const l=DB.paye.lines.find(x=>x.id===id); if(!l)return;
+  const amt=Math.round(payeAmt(l)*100)/100; if(!amt){ toast("Indique un montant pour cette ligne"); return; }
+  UI.edit={type:"transfer",date:todayISO(),montant:amt,from:"cc",to:l.dest,note:l.nom||"Découpe de paye"};
+  UI.type="tr"; UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
 
 /* ===================== OBJECTIFS D'ÉPARGNE ===================== */
 function monthsUntil(iso){ if(!iso)return null; const now=new Date(); now.setHours(0,0,0,0); const p=iso.split("-").map(Number); const d=new Date(p[0],p[1]-1,p[2]); return (d-now)/(86400000*30.44); }
@@ -1502,6 +1624,13 @@ function viewReglages(){
     <label class="switch"><input type="checkbox" ${c.active?'checked':''} onchange="setCat(${i},'active',this.checked)"><span class="sl"></span></label>
     <button class="del" onclick="delCat(${i})">🗑️</button>
   </div>`).join("");
+  const libRows=(DB.libelles||[]).length?(DB.libelles||[]).map((l,i)=>`<div class="setrow">
+    <span>⭐</span>
+    <input class="si" value="${escH(l.txt)}" onchange="setLib(${i},'txt',this.value)">
+    <select style="flex:1;min-width:110px" onchange="setLib(${i},'cat',this.value)">${catOptions(l.cat)}</select>
+    <select style="flex:1;min-width:110px" onchange="setLib(${i},'sub',this.value)">${subOptions(l.cat,l.sub)}</select>
+    <button class="del" onclick="delLib(${i})">🗑️</button>
+  </div>`).join(""):`<div class="muted" style="font-size:12.5px">Ta liste est vide. Ajoute un libellé ci-dessous, ou depuis la Saisie avec le bouton ⭐.</div>`;
   return `<div class="pagehead">⚙️ Réglages</div>
   <div class="card"><h2>🏦 Comptes</h2>
     <div class="muted" style="font-size:12.5px;margin-bottom:10px">Pour recaler un compte sur la réalité : tape ton <b>solde réel actuel</b> dans la case de droite → le solde se recale et reste exact ensuite. Décoche pour masquer un compte (ex : PEA).</div>
@@ -1514,6 +1643,11 @@ function viewReglages(){
       <div class="field" style="margin:0"><input id="ncName" placeholder="Nom de la nouvelle catégorie"></div></div>
     <button class="btn ghost sm" onclick="addCat()" style="margin-top:8px">+ Ajouter la catégorie</button>
     <button class="btn ghost sm" onclick="go('besoins')" style="margin-top:8px">✂️ Classer essentiel / non essentiel (détail par sous-catégorie) →</button></div>
+  <div class="card"><h2>📝 Mes libellés</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Ta liste de libellés favoris : ils te sont proposés en premier (⭐) quand tu saisis une opération, avec leur catégorie pré-remplie. L'app te propose aussi automatiquement tout ce que tu as déjà saisi.</div>
+    ${libRows}
+    <div class="row2" style="margin-top:14px"><div class="field" style="margin:0"><input id="nlTxt" placeholder="Nouveau libellé (ex : Anthropic / Claude)"></div>
+      <div class="field" style="margin:0"><button class="btn ghost sm" onclick="addLib()">+ Ajouter à ma liste</button></div></div></div>
   <div class="card"><h2>☁️ Synchronisation</h2>
     ${ sb && SB_USER
       ? `<div class="muted" style="font-size:13px;margin-bottom:10px">Connectée en tant que <b style="color:var(--text)">${SB_USER.email}</b>.<br>Tes données sont synchronisées dans le cloud ${syncState==="error"?'<span class="neg">(⚠️ dernière synchro en erreur)</span>':'✅'} et partagées entre tous tes appareils.</div>
@@ -1540,6 +1674,13 @@ function setCatBesoin(i,v){ if(DB.categories[i]){ DB.categories[i].besoin=!!v; s
 function delCat(i){ if(!confirm("Supprimer la catégorie « "+DB.categories[i].name+" » ? (les opérations existantes gardent leur libellé)"))return; DB.categories.splice(i,1); save(); render(); }
 function addCat(){ const n=document.getElementById("ncName").value.trim(); if(!n){toast("Donne un nom");return;}
   DB.categories.push({name:n,emoji:(document.getElementById("ncEmoji").value.trim()||"🏷️"),active:true,subs:[]}); save(); toast("Catégorie ajoutée"); render(); }
+function setLib(i,f,v){ const l=DB.libelles[i]; if(!l)return;
+  if(f==="txt"){ l.txt=v.trim()||l.txt; } else if(f==="cat"){ l.cat=v; l.sub=""; } else l[f]=v;
+  save(); render(); }
+function delLib(i){ DB.libelles.splice(i,1); save(); render(); }
+function addLib(){ const el=document.getElementById("nlTxt"); const t=(el?el.value:"").trim(); if(!t){toast("Écris un libellé");return;}
+  if((DB.libelles||[]).some(l=>(l.txt||"").toLowerCase()===t.toLowerCase())){toast("Déjà dans ta liste 😉");return;}
+  DB.libelles.push({txt:t,cat:"",sub:""}); save(); toast("⭐ Libellé ajouté"); render(); }
 
 /* ===================== IMPORT / EXPORT ===================== */
 function exportCSV(){
@@ -1583,6 +1724,8 @@ window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setCon
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
+window.starLib=starLib;window.setLib=setLib;window.delLib=delLib;window.addLib=addLib;
+window.setPaye=setPaye;window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeProposer=payeProposer;window.payeTransfer=payeTransfer;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 /* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
 function effectiveDark(){ const t=STORE.get("theme"); if(t==="dark")return true; if(t==="light")return false;
