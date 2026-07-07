@@ -1131,161 +1131,73 @@ function logCryptoValue(pid){ const p=DB.cryptoTrack.find(x=>x.id===pid); if(!p)
 function delCryptoEntry(pid,date){ const p=DB.cryptoTrack.find(x=>x.id===pid); if(!p)return; p.history=p.history.filter(e=>e.date!==date); save(); render(); }
 function delCryptoPlatform(pid){ if(!confirm("Supprimer cette plateforme et tout son historique ?"))return; DB.cryptoTrack=DB.cryptoTrack.filter(x=>x.id!==pid); save(); render(); }
 
-/* ===================== BUDGET (paye + enveloppes fusionnées) ===================== */
-/* espèces = filet de secours (caisse + portefeuille, un solde négatif est ignoré) */
-function cashDispo(){ const b=computeBalances(); return Math.max(0,b.caisse||0)+Math.max(0,b.portefeuille||0); }
-/* total mensualisé des paiements récurrents « À venir » d'une catégorie / sous-catégorie (annuel÷12, trimestriel÷3) */
-function recMensuel(cat,sub){ const seen={}; let tot=0;
-  (DB.future||[]).forEach(f=>{ const key=f.serieId||f.id; if(seen[key])return;
-    const fr=f.freq||"ponctuel"; if(fr==="ponctuel"||f.statut==="annulé"||f.type==="transfer")return;
-    if(f.montant>=0)return; if((f.categorie||"")!==cat)return; if(sub!=null&&(f.sousCategorie||"")!==sub)return;
-    seen[key]=1; tot+=Math.abs(f.montant)/(fr==="annuel"?12:fr==="trimestriel"?3:1); });
-  return Math.round(tot*100)/100; }
-/* somme des sous-plafonds en équivalent mensuel : un plafond "à l'année" compte pour son douzième (la provision) */
-function subYearly(c,s){ return !!(c.subYearly&&c.subYearly[s]); }
-function subPlafSum(c){ const sb=c.subBudgets; if(!sb) return 0;
-  return Object.keys(sb).reduce((a,s)=>{ const v=+sb[s]||0; return a+(subYearly(c,s)? v/12 : v); },0); }
-function catPlafond(c){ const ss=subPlafSum(c); if(ss>0) return ss;
-  return c.bpct ? Math.round((DB.paye.montant||0)*(c.budget||0))/100 : (c.budget||0); }
+/* ===================== BUDGET (simple : à dépenser + enveloppes €/mois & €/an) ===================== */
+/* Ce que tu peux DÉPENSER = compte courant + portefeuille. Caisse & Livret A = épargne (pas ici). */
+function dispoReel(){ const b=computeBalances(); return Math.round((Math.max(0,b.cc||0)+Math.max(0,b.portefeuille||0))*100)/100; }
+function aDepenser(){ return DB.aDepenser||0; }
+function setADepenser(v){ DB.aDepenser=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
+/* plafond mensuel d'une catégorie = part mensuelle + provision des annuels (€/an ÷ 12) */
+function catPlafond(c){ return Math.round(((+c.budget||0)+(+c.budgetAn||0)/12)*100)/100; }
+function aDepenserCardHTML(totPlaf){
+  const dep=aDepenser(), dispo=dispoReel(), reste=Math.round((dep-totPlaf)*100)/100, ok=totPlaf<=dep, pct=dep?Math.min(totPlaf/dep*100,100):0;
+  return `<div class="card"><h2>💶 Ce que j'ai à dépenser ce mois-ci</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Écris l'argent que tu peux dépenser ce mois-ci (ton <b>compte courant + portefeuille</b>). L'app vérifie juste que tes enveloppes rentrent dedans. Ta <b>caisse</b> et ton <b>Livret A</b>, c'est de l'épargne — ça ne compte pas ici.</div>
+    <div class="field" style="margin:0"><label>J'ai à dépenser (€)</label><input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${dep||""}" onchange="setADepenser(this.value)"></div>
+    ${dispo>0&&Math.round(dispo)!==Math.round(dep)?`<button class="btn ghost sm" style="width:auto;margin-top:8px" onclick="setADepenser(${dispo})">Utiliser mon solde réel (${eur0(dispo)})</button>`:""}
+    ${dep>0&&totPlaf>0?`<div class="bbar" style="margin-top:12px">
+      <div class="top"><span><b>Mes enveloppes</b></span><span style="color:${ok?'var(--pos)':'var(--neg)'}">${eur0(totPlaf)} <span class="muted">/ ${eur0(dep)}</span></span></div>
+      <div class="track"><div class="fill" style="width:${pct}%;background:${ok?'var(--accent)':'var(--neg)'}"></div></div>
+      <div class="muted" style="font-size:12.5px;margin-top:4px">${ok?`✅ Ça rentre — il te reste <b class="pos">${eur0(reste)}</b> non dépensé (ton épargne possible).`:`🔴 Tes enveloppes dépassent de <b class="neg">${eur0(-reste)}</b> ce que tu as à dépenser — baisse quelques limites.`}</div>
+    </div>`:""}
+  </div>`;
+}
 function viewBudget(){
   const m=UI.month==="all"?new Date().getMonth():UI.month;
   const tx=txOfMonth(m).filter(isDepense);
-  /* dépenses du mois par catégorie — les sous-catégories "à l'année" sont lissées :
-     leurs dépenses réelles sortent du mois, remplacées par la provision mensuelle (plafond/12) */
-  const spent={}; tx.forEach(t=>{const cn=t.categorie||"Autres", s=(t.sousCategorie||"").trim();
-    const cat=DB.categories.find(x=>x.name===cn);
-    if(cat&&s&&subYearly(cat,s)) return;
-    spent[cn]=(spent[cn]||0)+Math.abs(t.montant);});
-  DB.categories.forEach(c=>{ if(!c.active||!c.subYearly||!c.subBudgets) return;
-    Object.keys(c.subYearly).forEach(s=>{ const v=+c.subBudgets[s]||0;
-      if(c.subYearly[s]&&v>0) spent[c.name]=(spent[c.name]||0)+Math.round(v/12*100)/100; }); });
-  const cats=DB.categories.map((c,i)=>({c,i,b:catPlafond(c),s:spent[c.name]||0})).filter(x=>x.c.active);
-  const withB=cats.filter(x=>x.b>0).sort((a,b)=>(b.s/b.b)-(a.s/a.b));
-  const noB=cats.filter(x=>x.b<=0&&x.s>0).sort((a,b)=>b.s-a.s);
-  const totB=withB.reduce((a,x)=>a+x.b,0), totS=Object.values(spent).reduce((a,b)=>a+b,0);
-  const ratio=totB?Math.min(totS/totB*100,100):0;
-  const plafInput=x=>{ if(subPlafSum(x.c)>0) return `<span class="muted" style="font-size:11.5px">plafond = somme du détail</span>`;
-    const rec=x.c.bpct?0:recMensuel(x.c.name,null);
-    return `<span style="font-size:11.5px;display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap">plafond :
-      <input type="number" min="0" step="${x.c.bpct?1:10}" placeholder="0" value="${x.c.budget||""}" onchange="setCatBudget(${x.i},this.value)" style="width:70px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right">
-      <button class="btn ghost sm" style="width:auto;padding:4px 8px" title="Basculer € / % de la paye" onclick="toggleCatBudgetMode(${x.i})">${x.c.bpct?"%":"€"}</button>
-      ${x.c.bpct?`<span class="muted">= ${eur0(x.b)}</span>`:""}
-      ${rec>0&&Math.round(rec*100)!==Math.round((x.c.budget||0)*100)?`<span class="muted" style="font-size:10.5px">· 🔁 récurrents ${eur(rec)}/mois <button class="btn ghost sm" style="width:auto;padding:2px 8px;font-size:10px" onclick="setCatBudget(${x.i},${rec})">💡 utiliser</button></span>`:""}</span>`;};
-  const subDetail=x=>{
-    const subs=subsOf(x.c.name)||[]; if(!subs.length) return "";
-    const open=UI.budOpen===x.i;
-    const btn=`<button class="btn ghost sm" style="width:auto;padding:3px 8px;font-size:11px" onclick="budToggle(${x.i})">${open?"▾ masquer le détail":"▸ détail par sous-catégorie"}</button>`;
-    if(!open) return `<div style="margin-top:6px">${btn}</div>`;
-    const sb=x.c.subBudgets||{};
-    const perSub={}; let sans=0;
-    tx.forEach(t=>{ if((t.categorie||"Autres")!==x.c.name) return; const s=(t.sousCategorie||"").trim();
-      if(s&&subs.includes(s)) perSub[s]=(perSub[s]||0)+Math.abs(t.montant); else sans+=Math.abs(t.montant); });
-    /* dépenses sur les 12 derniers mois, pour les sous-catégories suivies à l'année */
-    const d=new Date(); d.setFullYear(d.getFullYear()-1);
-    const cut=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-    const sp12={}; DB.transactions.filter(isDepense).forEach(t=>{ if((t.categorie||"")!==x.c.name) return;
-      if((t.date||"")<cut) return; const s=(t.sousCategorie||"").trim(); if(s) sp12[s]=(sp12[s]||0)+Math.abs(t.montant); });
-    const row=(label,sp,b,j,an)=>{ const r=b?sp/b:0, col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)";
-      const rec=j!=null?recMensuel(x.c.name,label):0, recApply=an?Math.round(rec*12*100)/100:rec;
-      return `<div style="padding:5px 0;border-bottom:1px dashed var(--line)">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">
-          <span style="font-size:12px;flex:1;min-width:100px">${escH(label)}${an?' <span class="tag" style="font-size:9.5px">annuel</span>':''}</span>
-          <span style="font-size:11.5px;color:${b?col:'var(--muted)'}">${eur0(sp)}${b?` <span class="muted">/ ${eur0(b)}${an?" sur 12 mois":""}</span>`:""}</span>
-          ${j!=null?`<span style="font-size:11px;display:inline-flex;align-items:center;gap:3px" class="muted">plafond <input type="number" min="0" step="5" placeholder="—" value="${b||""}" onchange="setSubBudget(${x.i},${j},this.value)" style="width:60px;padding:3px 5px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);text-align:right">
-            <button class="btn ghost sm" style="width:auto;padding:3px 7px;font-size:10.5px" title="Basculer plafond par mois / par an (dépense annuelle lissée)" onclick="toggleSubYearly(${x.i},${j})">€/${an?"an":"mois"}</button>
-            ${an&&b?`<span class="muted">≈ ${eur0(b/12)}/mois</span>`:""}</span>`:`<span style="font-size:11px" class="muted">non détaillé</span>`}
-        </div>
-        ${rec>0?`<div class="muted" style="font-size:10.5px;margin-top:2px">🔁 Tes récurrents « À venir » ici : <b>${eur(rec)}/mois</b> (annuels comptés au douzième)${Math.round(rec*100)!==Math.round((an?b/12:b)*100)?` <button class="btn ghost sm" style="width:auto;padding:2px 8px;font-size:10px" onclick="setSubBudget(${x.i},${j},${recApply})">💡 utiliser comme plafond</button>`:" ✓"}</div>`:""}
-        ${b?`<div class="track" style="height:5px;margin-top:3px"><div class="fill" style="width:${Math.min(r*100,100)}%;background:${col}"></div></div>`:""}
-      </div>`;};
-    const rows=subs.map((s,j)=>{ const an=subYearly(x.c,s);
-      return row(s,an?(sp12[s]||0):(perSub[s]||0),+sb[s]||0,j,an); }).join("")
-      +(sans>0?row("(sans sous-catégorie)",sans,0,null,false):"");
-    const som=subPlafSum(x.c);
-    return `<div style="margin-top:6px">${btn}
-      <div style="margin-top:4px;padding:2px 0 0 10px;border-left:2px solid var(--line)">${rows}
-      <div class="muted" style="font-size:11px;margin-top:5px">${som>0?`Somme du détail : <b>${eur0(som)}</b>/mois — c'est le plafond de l'enveloppe (un plafond « €/an » compte pour sa provision mensuelle, soit son douzième).`:`Indique un plafond par sous-catégorie : leur somme deviendra le plafond de l'enveloppe. Pour un abonnement annuel, bascule sur <b>€/an</b> et saisis le prix à l'année — l'app provisionne le douzième chaque mois.`}</div></div></div>`;};
-  const bar=x=>{const r=x.b?x.s/x.b:0,pct=Math.min(r*100,100),col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)",reste=x.b-x.s;
-    return `<div class="bbar"><div class="top"><span>${x.c.emoji} <b>${x.c.name}</b></span>
-      <span style="color:${col}">${eur0(x.s)} <span class="muted">/ ${eur0(x.b)}</span></span></div>
-      <div class="track"><div class="fill" style="width:${pct}%;background:${col}"></div></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;flex-wrap:wrap;gap:4px">
-        <span class="muted" style="font-size:11.5px">${reste>=0?`reste <b class="pos">${eur0(reste)}</b>`:`dépassé de <b class="neg">${eur0(-reste)}</b>`}</span>
-        ${plafInput(x)}
-      </div>${subDetail(x)}</div>`;};
-  const noBudgetRows=noB.map(x=>`<div style="padding:8px 2px;border-bottom:1px solid var(--line)">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">
-    <span>${x.c.emoji} ${x.c.name} <span class="muted" style="font-size:11.5px">— ${eur0(x.s)} dépensés</span></span>
-    ${plafInput(x)}</div>${subDetail(x)}</div>`).join("");
+  const spentM={}; tx.forEach(t=>{const c=t.categorie||"Autres"; spentM[c]=(spentM[c]||0)+Math.abs(t.montant);});
+  /* dépenses sur 12 mois glissants (pour les catégories qui ont une part annuelle) */
+  const d=new Date(); d.setFullYear(d.getFullYear()-1);
+  const cut=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  const spent12={}; DB.transactions.filter(isDepense).forEach(t=>{ if((t.date||"")<cut)return; const c=t.categorie||"Autres"; spent12[c]=(spent12[c]||0)+Math.abs(t.montant); });
+  const cats=DB.categories.map((c,i)=>{ const an=(+c.budgetAn||0)>0, plaf=catPlafond(c);
+    const budRef=an?((+c.budget||0)*12+(+c.budgetAn||0)):(+c.budget||0);
+    const spRef=an?(spent12[c.name]||0):(spentM[c.name]||0);
+    return {c,i,an,plaf,budRef,spRef,sMois:spentM[c.name]||0}; }).filter(x=>x.c.active);
+  const totPlaf=cats.reduce((a,x)=>a+x.plaf,0);
+  const inputs=x=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11.5px" class="muted">
+      <span style="display:inline-flex;align-items:center;gap:3px">€/mois <input type="number" min="0" step="5" placeholder="0" value="${x.c.budget||""}" onchange="setCatBudget(${x.i},this.value)" style="width:60px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"></span>
+      <span style="display:inline-flex;align-items:center;gap:3px">€/an <input type="number" min="0" step="10" placeholder="0" value="${x.c.budgetAn||""}" onchange="setCatBudgetAn(${x.i},this.value)" style="width:60px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"></span>
+      ${x.an?`<span>= <b>${eur0(x.plaf)}</b>/mois à prévoir</span>`:""}
+    </div>`;
+  const row=x=>{ const has=x.plaf>0, r=has&&x.budRef?x.spRef/x.budRef:0, pct=Math.min(r*100,100), col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)", reste=x.budRef-x.spRef;
+    return `<div class="bbar"><div class="top"><span>${x.c.emoji} <b>${x.c.name}</b>${x.an?' <span class="tag" style="font-size:9.5px">sur 12 mois</span>':''}</span>
+      <span style="color:${has?col:'var(--muted)'}">${has?`${eur0(x.spRef)} <span class="muted">/ ${eur0(x.budRef)}</span>`:`${eur0(x.sMois)} <span class="muted">dépensés</span>`}</span></div>
+      ${has?`<div class="track"><div class="fill" style="width:${pct}%;background:${col}"></div></div>`:""}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;flex-wrap:wrap;gap:6px">
+        ${has?`<span class="muted" style="font-size:11.5px">${reste>=0?`reste <b class="pos">${eur0(reste)}</b>`:`dépassé de <b class="neg">${eur0(-reste)}</b>`}</span>`:`<span class="muted" style="font-size:11.5px">pas encore de limite</span>`}
+        ${inputs(x)}
+      </div></div>`;};
   return `<div class="pagehead">🎯 Mes enveloppes</div>${monthSelector()}
-  ${payeCardHTML(m)}
-  <div class="card"><h2>Vue d'ensemble — ${MONTHS[m]}</h2>
-    ${totB>0?`<div class="bbar"><div class="top"><span><b>Total dépensé</b></span><span style="color:${totS>totB?'var(--neg)':'var(--pos)'}">${eur0(totS)} <span class="muted">/ ${eur0(totB)} prévus</span></span></div>
-      <div class="track"><div class="fill" style="width:${ratio}%;background:${totS>totB?'var(--neg)':'var(--accent)'}"></div></div></div>
-    <div class="muted" style="font-size:13px">${totS<=totB?`Il te reste <b class="pos">${eur0(totB-totS)}</b> sur l'ensemble de tes enveloppes.`:`Tu as dépassé tes enveloppes de <b class="neg">${eur0(totS-totB)}</b>.`}</div>`
-    :`<div class="muted" style="font-size:13px">Définis un <b>plafond mensuel</b> par catégorie ci-dessous pour suivre tes enveloppes. Astuce : pars des montants de ton <b>train de vie</b> dans le <button class="btn ghost sm" style="display:inline;width:auto;padding:3px 8px" onclick="go('rapport')">📋 rapport</button>, ou <button class="btn ghost sm" style="display:inline;width:auto;padding:3px 8px" onclick="proposerPlafonds()">💡 propose-moi des plafonds</button> d'après tes dépenses moyennes.</div>`}
-  </div>
-  ${withB.length?`<div class="card"><h2>Mes enveloppes</h2>${withB.map(bar).join("")}</div>`:""}
-  ${noBudgetRows?`<div class="card"><h2>Sans plafond <span class="tag">à définir</span></h2><div class="muted" style="font-size:12px;margin-bottom:8px">Ces catégories ont des dépenses ce mois-ci mais pas encore de plafond.</div>${noBudgetRows}</div>`:""}
-  ${!withB.length&&!noBudgetRows?'<div class="card"><div class="empty">Aucune dépense ce mois-ci. Saisis des opérations, puis fixe tes plafonds ici.</div></div>':""}
+  ${aDepenserCardHTML(totPlaf)}
+  <div class="card"><h2>Mes enveloppes — ${MONTHS[m]}</h2>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">Mets une limite par catégorie : ce que tu dépenses <b>par mois</b>, et s'il y a des choses <b>par an</b> (abonnements…), l'app ajoute leur part mensuelle. La barre se remplit avec tes dépenses réelles. <button class="btn ghost sm" style="display:inline;width:auto;padding:3px 8px" onclick="proposerPlafonds()">💡 propose-moi des montants</button></div>
+    ${cats.map(row).join("")}</div>
   ${epargneCardHTML(m)}`;
 }
 function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
-function budToggle(i){ UI.budOpen=UI.budOpen===i?null:i; render(); }
-function setSubBudget(i,j,v){ const c=DB.categories[i]; if(!c)return; const s=(subsOf(c.name)||[])[j]; if(s==null)return;
-  const val=Math.max(0,parseFloat(String(v).replace(",","."))||0);
-  if(!c.subBudgets||typeof c.subBudgets!=="object") c.subBudgets={};
-  if(val>0) c.subBudgets[s]=val; else delete c.subBudgets[s];
-  if(!Object.keys(c.subBudgets).length) delete c.subBudgets;
-  save(); render(); }
-function toggleSubYearly(i,j){ const c=DB.categories[i]; if(!c)return; const s=(subsOf(c.name)||[])[j]; if(s==null)return;
-  const an=subYearly(c,s); const v=+((c.subBudgets||{})[s])||0;
-  if(!c.subYearly||typeof c.subYearly!=="object") c.subYearly={};
-  if(an){ delete c.subYearly[s]; if(v>0){ c.subBudgets[s]=Math.round(v/12*100)/100; } }
-  else { c.subYearly[s]=true; if(v>0){ if(!c.subBudgets)c.subBudgets={}; c.subBudgets[s]=Math.round(v*12*100)/100; } }
-  if(!Object.keys(c.subYearly).length) delete c.subYearly;
-  save(); render(); }
-function toggleCatBudgetMode(i){ const c=DB.categories[i]; if(!c)return; const base=DB.paye.montant||0;
-  if(c.bpct){ c.budget=catPlafond(c); c.bpct=false; }
-  else { if(base>0&&c.budget>0) c.budget=Math.round((c.budget||0)/base*1000)/10; c.bpct=true; }
-  save(); render(); }
-/* proposition : plafonds = moyenne dépensée par catégorie (celles qui n'en ont pas encore) */
+function setCatBudgetAn(i,v){ const c=DB.categories[i]; if(!c)return; c.budgetAn=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
+/* proposition : limite €/mois = moyenne dépensée par catégorie (celles sans limite) */
 function proposerPlafonds(){
   const n=Math.max(1,monthsWithDep().length); const per={};
   DB.transactions.filter(isDepense).forEach(t=>{ const c=t.categorie||""; if(c) per[c]=(per[c]||0)+Math.abs(t.montant); });
   let done=0;
-  activeCats().forEach(c=>{ if(catPlafond(c)>0) return; const amt=Math.round((per[c.name]||0)/n); if(amt>0){ c.budget=amt; c.bpct=false; done++; } });
-  if(!done){ toast("Pas encore assez d'historique — fixe tes plafonds à la main"); return; }
-  save(); render(); toast(done+" plafond(s) proposé(s) d'après tes dépenses moyennes 💡");
+  activeCats().forEach(c=>{ if(catPlafond(c)>0) return; const amt=Math.round((per[c.name]||0)/n); if(amt>0){ c.budget=amt; done++; } });
+  if(!done){ toast("Pas encore assez d'historique — mets tes limites à la main"); return; }
+  save(); render(); toast(done+" limite(s) proposée(s) d'après tes dépenses moyennes 💡");
 }
 
-/* ===================== MA PAYE + ÉPARGNE (fusion avec les enveloppes) ===================== */
-function payeAmt(l){ return l.mode==="pct"? (DB.paye.montant||0)*(l.val||0)/100 : (l.val||0); }
-function payeCardHTML(m){
-  const paye=DB.paye.montant||0, cash=cashDispo(), revM=flowOf(m).rev, bal=computeBalances();
-  const totB=activeCats().reduce((a,c)=>a+catPlafond(c),0);
-  const ep=DB.paye.lines.reduce((a,l)=>a+payeAmt(l),0);
-  const plan=totB+ep;
-  const okPaye=plan<=paye, okCash=plan<=paye+cash;
-  const col=okPaye?'var(--pos)':okCash?'var(--warn)':'var(--neg)';
-  const pct=paye?Math.min(plan/paye*100,100):0;
-  return `<div class="card"><h2>💶 Mon budget vs ma paye</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Tes plafonds sont un <b>budget approximatif</b> — pas besoin de tout répartir. On vérifie juste que l'ensemble <b>tient dans ta paye</b>, avec tes espèces en secours.</div>
-    <div class="row2" style="align-items:end">
-      <div class="field" style="margin:0"><label>Ma paye ce mois-ci (€)</label><input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${paye||""}" onchange="setPaye(this.value)"></div>
-      <div>${revM>0&&Math.round(revM)!==Math.round(paye)?`<button class="btn ghost sm" onclick="setPaye(${revM})">Utiliser mes entrées de ${MONTHS[m]} (${eur0(revM)})</button>`:"<span></span>"}</div>
-    </div>
-    ${paye>0&&plan>0?`<div class="bbar" style="margin-top:12px">
-      <div class="top"><span><b>Budget prévu</b> <span class="muted" style="font-weight:400">(enveloppes ${eur0(totB)} + épargne ${eur0(ep)})</span></span><span style="color:${col}">${eur0(plan)} <span class="muted">/ ${eur0(paye)}</span></span></div>
-      <div class="track"><div class="fill" style="width:${pct}%;background:${col}"></div></div>
-      <div class="muted" style="font-size:12.5px;margin-top:4px">${
-        okPaye?`✅ Ton budget tient dans ta paye — marge libre : <b class="pos">${eur0(paye-plan)}</b> (rien ne t'oblige à l'affecter).`
-        :okCash?`🟡 Ça dépasse ta paye de <b>${eur0(plan-paye)}</b>, mais tes espèces (${eur0(cash)}) peuvent couvrir.`
-        :`🔴 Ça dépasse ta paye + tes espèces de <b class="neg">${eur0(plan-paye-cash)}</b> — baisse quelques plafonds.`}</div>
-    </div>`:""}
-    <div class="muted" style="font-size:12px;margin-top:8px">💰 En secours : caisse ${eur0(bal.caisse||0)} + portefeuille ${eur0(bal.portefeuille||0)}${((bal.caisse||0)<0||(bal.portefeuille||0)<0)?' <span style="color:var(--warn)">(un solde négatif ne compte pas)</span>':''} = <b>${eur0(cash)}</b> d'espèces</div>
-  </div>`;
-}
+/* ===================== OBJECTIFS D'ÉPARGNE (par compte : cible + suivi réel) ===================== */
+function payeAmt(l){ return +l.val||0; }
 /* combien est réellement arrivé sur un compte ce mois-ci (virements entrants − sortants) */
 function misVersCompte(acctId,m){ if(!acctId) return 0; let v=0;
   txOfMonth(m).forEach(t=>{
@@ -1297,8 +1209,6 @@ function epargneCardHTML(m){
   const lignes=DB.paye.lines;
   const totCible=lignes.reduce((a,l)=>a+(l.acct?payeAmt(l):0),0);
   const totFait=lignes.reduce((a,l)=>a+(l.acct?Math.max(0,misVersCompte(l.acct,m)):0),0);
-  const depMois=txOfMonth(m).filter(isDepense).reduce((a,t)=>a+Math.abs(t.montant),0);
-  const restePaye=Math.round(((DB.paye.montant||0)-depMois)*100)/100;
   const rows=lignes.map(l=>{ const cible=payeAmt(l), fait=l.acct?Math.max(0,misVersCompte(l.acct,m)):0;
     const r=cible?fait/cible:0, atteint=cible>0&&fait>=cible-0.005, col=atteint?'var(--pos)':'var(--accent)', reste=Math.max(0,cible-fait);
     return `<div class="setrow" style="flex-wrap:wrap;align-items:center">
@@ -1308,8 +1218,7 @@ function epargneCardHTML(m){
       </select>
       <span class="muted" style="font-size:11px">objectif</span>
       <input class="mini" type="number" min="0" step="1" value="${l.val||""}" onchange="payeSet('${l.id}','val',this.value)">
-      <button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Basculer € / % de la paye" onclick="payeSet('${l.id}','mode','${l.mode==="pct"?"eur":"pct"}')">${l.mode==="pct"?"%":"€"}</button>
-      <b style="min-width:60px;text-align:right">${eur0(cible)}</b>
+      <b style="min-width:56px;text-align:right">${eur0(cible)}</b>
       ${l.acct?`<button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Préparer le virement du reste" onclick="payeTransfer('${l.id}')">⇄</button>`:""}
       <button class="del" onclick="payeDel('${l.id}')">🗑️</button>
       ${l.acct&&cible>0?`<div style="flex-basis:100%;margin-top:2px">
@@ -1318,13 +1227,12 @@ function epargneCardHTML(m){
       </div>`:""}
     </div>`;}).join("");
   return `<div class="card"><h2>🎯 Mes objectifs d'épargne du mois</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Fixe une cible par compte. Ce sont des <b>objectifs souples</b> : t'en approcher c'est déjà bien, faire plus c'est mieux, faire moins un mois n'est pas grave. Le bouton <b>⇄</b> prépare le virement du reste.</div>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Fixe une cible par compte (Livret A, caisse, Swissborg…). Ce sont des <b>objectifs souples</b> : t'en approcher c'est déjà bien, faire moins un mois n'est pas grave. Le <b>⇄</b> prépare le virement du reste.</div>
     ${rows||'<div class="muted" style="font-size:12.5px">Aucun objectif d\'épargne pour l\'instant.</div>'}
     ${totCible>0?`<div class="bbar" style="margin-top:12px">
       <div class="top"><span><b>Total mis de côté</b></span><span style="color:${totFait>=totCible-0.005?'var(--pos)':'var(--accent)'}">${eur0(totFait)} <span class="muted">/ ${eur0(totCible)} visés</span></span></div>
       <div class="track"><div class="fill" style="width:${totCible?Math.min(totFait/totCible*100,100):0}%;background:${totFait>=totCible-0.005?'var(--pos)':'var(--accent)'}"></div></div>
     </div>`:""}
-    ${DB.paye.montant>0?`<div class="muted" style="font-size:12px;margin-top:8px">💡 ${restePaye>=0?`Après tes dépenses du mois (${eur0(depMois)}), il te reste <b>${eur0(restePaye)}</b> de ta paye — c'est ta réserve pour ces objectifs${totCible>0&&restePaye<totCible?` (un peu moins que tes ${eur0(totCible)} visés : tes espèces peuvent compléter)`:""}.`:`Ce mois-ci tu as dépensé <b>${eur0(depMois)}</b>, soit ${eur0(-restePaye)} de plus que ta paye — tu piocheras dans tes espèces ou ton épargne.`}</div>`:""}
     <button class="btn ghost sm" style="width:auto;margin-top:10px" onclick="payeAddLine()">➕ Ajouter un objectif d'épargne</button>
   </div>`;
 }
@@ -1845,7 +1753,7 @@ window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
 window.starLib=starLib;window.setLib=setLib;window.delLib=delLib;window.addLib=addLib;
-window.setPaye=setPaye;window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.toggleCatBudgetMode=toggleCatBudgetMode;window.proposerPlafonds=proposerPlafonds;window.budToggle=budToggle;window.setSubBudget=setSubBudget;window.toggleSubYearly=toggleSubYearly;
+window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.proposerPlafonds=proposerPlafonds;window.setCatBudgetAn=setCatBudgetAn;window.setADepenser=setADepenser;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 /* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
 function effectiveDark(){ const t=STORE.get("theme"); if(t==="dark")return true; if(t==="light")return false;
