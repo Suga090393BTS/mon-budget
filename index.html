@@ -281,6 +281,8 @@ function ensureDefaults(){
   }
   if(DB.contratHebdo==null) DB.contratHebdo=42;
   DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
+  /* migration : ancienne double-saisie €/an → tout ramené en mensuel (÷12) dans c.budget */
+  DB.categories.forEach(c=>{ if(c.budgetAn!=null){ c.budget=Math.round(((+c.budget||0)+(+c.budgetAn||0)/12)*100)/100; delete c.budgetAn; } });
   if(!Array.isArray(DB.cryptoTrack)){ DB.cryptoTrack=[{id:"sb",nom:"Swissborg",history:[]},{id:"av",nom:"Assurance vie",history:[]}]; DB.avSeeded=true; }
   else if(!DB.avSeeded){ if(!DB.cryptoTrack.some(p=>p.id==="av")) DB.cryptoTrack.push({id:"av",nom:"Assurance vie",history:[]}); DB.avSeeded=true; }
 }
@@ -1136,8 +1138,8 @@ function delCryptoPlatform(pid){ if(!confirm("Supprimer cette plateforme et tout
 function dispoReel(){ const b=computeBalances(); return Math.round((Math.max(0,b.cc||0)+Math.max(0,b.portefeuille||0))*100)/100; }
 function aDepenser(){ return DB.aDepenser||0; }
 function setADepenser(v){ DB.aDepenser=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
-/* plafond mensuel d'une catégorie = part mensuelle + provision des annuels (€/an ÷ 12) */
-function catPlafond(c){ return Math.round(((+c.budget||0)+(+c.budgetAn||0)/12)*100)/100; }
+/* plafond = limite mensuelle de la catégorie (un prix annuel se convertit en mensuel via ÷12) */
+function catPlafond(c){ return Math.round((+c.budget||0)*100)/100; }
 function aDepenserCardHTML(totPlaf){
   const dep=aDepenser(), dispo=dispoReel(), reste=Math.round((dep-totPlaf)*100)/100, ok=totPlaf<=dep, pct=dep?Math.min(totPlaf/dep*100,100):0;
   return `<div class="card"><h2>💶 Ce que j'ai à dépenser ce mois-ci</h2>
@@ -1155,23 +1157,15 @@ function viewBudget(){
   const m=UI.month==="all"?new Date().getMonth():UI.month;
   const tx=txOfMonth(m).filter(isDepense);
   const spentM={}; tx.forEach(t=>{const c=t.categorie||"Autres"; spentM[c]=(spentM[c]||0)+Math.abs(t.montant);});
-  /* dépenses sur 12 mois glissants (pour les catégories qui ont une part annuelle) */
-  const d=new Date(); d.setFullYear(d.getFullYear()-1);
-  const cut=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-  const spent12={}; DB.transactions.filter(isDepense).forEach(t=>{ if((t.date||"")<cut)return; const c=t.categorie||"Autres"; spent12[c]=(spent12[c]||0)+Math.abs(t.montant); });
-  const cats=DB.categories.map((c,i)=>{ const an=(+c.budgetAn||0)>0, plaf=catPlafond(c);
-    const budRef=an?((+c.budget||0)*12+(+c.budgetAn||0)):(+c.budget||0);
-    const spRef=an?(spent12[c.name]||0):(spentM[c.name]||0);
-    return {c,i,an,plaf,budRef,spRef,sMois:spentM[c.name]||0}; }).filter(x=>x.c.active);
+  const cats=DB.categories.map((c,i)=>({c,i,plaf:catPlafond(c),sMois:spentM[c.name]||0})).filter(x=>x.c.active);
   const totPlaf=cats.reduce((a,x)=>a+x.plaf,0);
   const inputs=x=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11.5px" class="muted">
-      <span style="display:inline-flex;align-items:center;gap:3px">€/mois <input type="number" min="0" step="5" placeholder="0" value="${x.c.budget||""}" onchange="setCatBudget(${x.i},this.value)" style="width:60px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"></span>
-      <span style="display:inline-flex;align-items:center;gap:3px">€/an <input type="number" min="0" step="10" placeholder="0" value="${x.c.budgetAn||""}" onchange="setCatBudgetAn(${x.i},this.value)" style="width:60px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"></span>
-      ${x.an?`<span>= <b>${eur0(x.plaf)}</b>/mois à prévoir</span>`:""}
+      <span style="display:inline-flex;align-items:center;gap:3px">€/mois <input type="number" min="0" step="5" placeholder="0" value="${x.c.budget||""}" onchange="setCatBudget(${x.i},this.value)" style="width:64px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"></span>
+      ${x.c.budget>0?`<button class="btn ghost sm" style="width:auto;padding:3px 8px;font-size:10.5px" title="J'ai tapé un prix à l'année ? Clique pour le diviser par 12 et le passer en mensuel" onclick="convertAn(${x.i})">c'était par an ÷12</button>`:""}
     </div>`;
-  const row=x=>{ const has=x.plaf>0, r=has&&x.budRef?x.spRef/x.budRef:0, pct=Math.min(r*100,100), col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)", reste=x.budRef-x.spRef;
-    return `<div class="bbar"><div class="top"><span>${x.c.emoji} <b>${x.c.name}</b>${x.an?' <span class="tag" style="font-size:9.5px">sur 12 mois</span>':''}</span>
-      <span style="color:${has?col:'var(--muted)'}">${has?`${eur0(x.spRef)} <span class="muted">/ ${eur0(x.budRef)}</span>`:`${eur0(x.sMois)} <span class="muted">dépensés</span>`}</span></div>
+  const row=x=>{ const has=x.plaf>0, r=has?x.sMois/x.plaf:0, pct=Math.min(r*100,100), col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)", reste=x.plaf-x.sMois;
+    return `<div class="bbar"><div class="top"><span>${x.c.emoji} <b>${x.c.name}</b></span>
+      <span style="color:${has?col:'var(--muted)'}">${has?`${eur0(x.sMois)} <span class="muted">/ ${eur0(x.plaf)}</span>`:`${eur0(x.sMois)} <span class="muted">dépensés</span>`}</span></div>
       ${has?`<div class="track"><div class="fill" style="width:${pct}%;background:${col}"></div></div>`:""}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;flex-wrap:wrap;gap:6px">
         ${has?`<span class="muted" style="font-size:11.5px">${reste>=0?`reste <b class="pos">${eur0(reste)}</b>`:`dépassé de <b class="neg">${eur0(-reste)}</b>`}</span>`:`<span class="muted" style="font-size:11.5px">pas encore de limite</span>`}
@@ -1180,12 +1174,13 @@ function viewBudget(){
   return `<div class="pagehead">🎯 Mes enveloppes</div>${monthSelector()}
   ${aDepenserCardHTML(totPlaf)}
   <div class="card"><h2>Mes enveloppes — ${MONTHS[m]}</h2>
-    <div class="muted" style="font-size:12px;margin-bottom:10px">Mets une limite par catégorie : ce que tu dépenses <b>par mois</b>, et s'il y a des choses <b>par an</b> (abonnements…), l'app ajoute leur part mensuelle. La barre se remplit avec tes dépenses réelles. <button class="btn ghost sm" style="display:inline;width:auto;padding:3px 8px" onclick="proposerPlafonds()">💡 propose-moi des montants</button></div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">Mets une limite <b>par mois</b> pour chaque catégorie. Un abonnement à l'année ? Tape son prix dans la case, puis clique <b>« c'était par an ÷12 »</b> — l'app le passe en mensuel. <button class="btn ghost sm" style="display:inline;width:auto;padding:3px 8px" onclick="proposerPlafonds()">💡 propose-moi des montants</button></div>
     ${cats.map(row).join("")}</div>
   ${epargneCardHTML(m)}`;
 }
 function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
-function setCatBudgetAn(i,v){ const c=DB.categories[i]; if(!c)return; c.budgetAn=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
+function convertAn(i){ const c=DB.categories[i]; if(!c)return; const v=+c.budget||0; if(v<=0){ toast("Tape d'abord le prix à l'année dans la case"); return; }
+  c.budget=Math.round(v/12*100)/100; save(); render(); toast("Converti : "+eur(v)+"/an → "+eur(c.budget)+"/mois ✅"); }
 /* proposition : limite €/mois = moyenne dépensée par catégorie (celles sans limite) */
 function proposerPlafonds(){
   const n=Math.max(1,monthsWithDep().length); const per={};
@@ -1753,7 +1748,7 @@ window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
 window.starLib=starLib;window.setLib=setLib;window.delLib=delLib;window.addLib=addLib;
-window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.proposerPlafonds=proposerPlafonds;window.setCatBudgetAn=setCatBudgetAn;window.setADepenser=setADepenser;
+window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.proposerPlafonds=proposerPlafonds;window.convertAn=convertAn;window.setADepenser=setADepenser;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 /* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
 function effectiveDark(){ const t=STORE.get("theme"); if(t==="dark")return true; if(t==="light")return false;
