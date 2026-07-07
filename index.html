@@ -1228,7 +1228,7 @@ function viewBudget(){
   ${withB.length?`<div class="card"><h2>Mes enveloppes</h2>${withB.map(bar).join("")}</div>`:""}
   ${noBudgetRows?`<div class="card"><h2>Sans plafond <span class="tag">à définir</span></h2><div class="muted" style="font-size:12px;margin-bottom:8px">Ces catégories ont des dépenses ce mois-ci mais pas encore de plafond.</div>${noBudgetRows}</div>`:""}
   ${!withB.length&&!noBudgetRows?'<div class="card"><div class="empty">Aucune dépense ce mois-ci. Saisis des opérations, puis fixe tes plafonds ici.</div></div>':""}
-  ${epargneCardHTML()}`;
+  ${epargneCardHTML(m)}`;
 }
 function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
 function budToggle(i){ UI.budOpen=UI.budOpen===i?null:i; render(); }
@@ -1286,23 +1286,46 @@ function payeCardHTML(m){
     <div class="muted" style="font-size:12px;margin-top:8px">💰 En secours : caisse ${eur0(bal.caisse||0)} + portefeuille ${eur0(bal.portefeuille||0)}${((bal.caisse||0)<0||(bal.portefeuille||0)<0)?' <span style="color:var(--warn)">(un solde négatif ne compte pas)</span>':''} = <b>${eur0(cash)}</b> d'espèces</div>
   </div>`;
 }
-function epargneCardHTML(){
-  const rows=DB.paye.lines.map(l=>{ const amt=payeAmt(l);
-    return `<div class="setrow" style="flex-wrap:wrap">
+/* combien est réellement arrivé sur un compte ce mois-ci (virements entrants − sortants) */
+function misVersCompte(acctId,m){ if(!acctId) return 0; let v=0;
+  txOfMonth(m).forEach(t=>{
+    if(t.type==="transfer"){ if(t.to===acctId) v+=Math.abs(t.montant); if(t.from===acctId) v-=Math.abs(t.montant); }
+    else if(isSavingsTransfer(t)){ if(savingsAccountOf(t)===acctId) v+=-t.montant; }
+  });
+  return Math.round(v*100)/100; }
+function epargneCardHTML(m){
+  const lignes=DB.paye.lines;
+  const totCible=lignes.reduce((a,l)=>a+(l.acct?payeAmt(l):0),0);
+  const totFait=lignes.reduce((a,l)=>a+(l.acct?Math.max(0,misVersCompte(l.acct,m)):0),0);
+  const depMois=txOfMonth(m).filter(isDepense).reduce((a,t)=>a+Math.abs(t.montant),0);
+  const restePaye=Math.round(((DB.paye.montant||0)-depMois)*100)/100;
+  const rows=lignes.map(l=>{ const cible=payeAmt(l), fait=l.acct?Math.max(0,misVersCompte(l.acct,m)):0;
+    const r=cible?fait/cible:0, atteint=cible>0&&fait>=cible-0.005, col=atteint?'var(--pos)':'var(--accent)', reste=Math.max(0,cible-fait);
+    return `<div class="setrow" style="flex-wrap:wrap;align-items:center">
       <select style="flex:1.4;min-width:150px" onchange="payeSet('${l.id}','acct',this.value)">
         <option value="">— Choisir un compte —</option>
         ${DB.accounts.filter(a=>a.active&&a.id!=="cc").map(a=>`<option value="${a.id}" ${l.acct===a.id?"selected":""}>${a.emoji} ${a.name}</option>`).join("")}
       </select>
+      <span class="muted" style="font-size:11px">objectif</span>
       <input class="mini" type="number" min="0" step="1" value="${l.val||""}" onchange="payeSet('${l.id}','val',this.value)">
       <button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Basculer € / % de la paye" onclick="payeSet('${l.id}','mode','${l.mode==="pct"?"eur":"pct"}')">${l.mode==="pct"?"%":"€"}</button>
-      <b style="min-width:64px;text-align:right">${eur0(amt)}</b>
-      ${l.acct?`<button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Préparer le virement" onclick="payeTransfer('${l.id}')">⇄</button>`:""}
+      <b style="min-width:60px;text-align:right">${eur0(cible)}</b>
+      ${l.acct?`<button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Préparer le virement du reste" onclick="payeTransfer('${l.id}')">⇄</button>`:""}
       <button class="del" onclick="payeDel('${l.id}')">🗑️</button>
+      ${l.acct&&cible>0?`<div style="flex-basis:100%;margin-top:2px">
+        <div class="track" style="height:6px"><div class="fill" style="width:${Math.min(r*100,100)}%;background:${col}"></div></div>
+        <div class="muted" style="font-size:11px;margin-top:2px">${atteint?`✅ Objectif atteint — <b>${eur0(fait)}</b> mis ce mois-ci${fait>cible+0.005?` (dont ${eur0(fait-cible)} en plus 🎉)`:""}`:`déjà mis : <b>${eur0(fait)}</b> · reste <b>${eur0(reste)}</b> pour atteindre ton objectif`}</div>
+      </div>`:""}
     </div>`;}).join("");
-  return `<div class="card"><h2>💰 Mon épargne du mois</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">La part de ta paye qui part vers tes comptes d'épargne. Le bouton <b>⇄</b> prépare le virement.</div>
-    ${rows||'<div class="muted" style="font-size:12.5px">Aucune ligne d\'épargne pour l\'instant.</div>'}
-    <button class="btn ghost sm" style="width:auto;margin-top:10px" onclick="payeAddLine()">➕ Ajouter une ligne d'épargne</button>
+  return `<div class="card"><h2>🎯 Mes objectifs d'épargne du mois</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Fixe une cible par compte. Ce sont des <b>objectifs souples</b> : t'en approcher c'est déjà bien, faire plus c'est mieux, faire moins un mois n'est pas grave. Le bouton <b>⇄</b> prépare le virement du reste.</div>
+    ${rows||'<div class="muted" style="font-size:12.5px">Aucun objectif d\'épargne pour l\'instant.</div>'}
+    ${totCible>0?`<div class="bbar" style="margin-top:12px">
+      <div class="top"><span><b>Total mis de côté</b></span><span style="color:${totFait>=totCible-0.005?'var(--pos)':'var(--accent)'}">${eur0(totFait)} <span class="muted">/ ${eur0(totCible)} visés</span></span></div>
+      <div class="track"><div class="fill" style="width:${totCible?Math.min(totFait/totCible*100,100):0}%;background:${totFait>=totCible-0.005?'var(--pos)':'var(--accent)'}"></div></div>
+    </div>`:""}
+    ${DB.paye.montant>0?`<div class="muted" style="font-size:12px;margin-top:8px">💡 ${restePaye>=0?`Après tes dépenses du mois (${eur0(depMois)}), il te reste <b>${eur0(restePaye)}</b> de ta paye — c'est ta réserve pour ces objectifs${totCible>0&&restePaye<totCible?` (un peu moins que tes ${eur0(totCible)} visés : tes espèces peuvent compléter)`:""}.`:`Ce mois-ci tu as dépensé <b>${eur0(depMois)}</b>, soit ${eur0(-restePaye)} de plus que ta paye — tu piocheras dans tes espèces ou ton épargne.`}</div>`:""}
+    <button class="btn ghost sm" style="width:auto;margin-top:10px" onclick="payeAddLine()">➕ Ajouter un objectif d'épargne</button>
   </div>`;
 }
 function setPaye(v){ DB.paye.montant=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
@@ -1312,7 +1335,10 @@ function payeSet(id,f,v){ const l=DB.paye.lines.find(x=>x.id===id); if(!l)return
   else l[f]=v; save(); render(); }
 function payeDel(id){ DB.paye.lines=DB.paye.lines.filter(x=>x.id!==id); save(); render(); }
 function payeTransfer(id){ const l=DB.paye.lines.find(x=>x.id===id); if(!l||!l.acct)return;
-  const amt=Math.round(payeAmt(l)*100)/100; if(!amt){ toast("Indique un montant pour cette ligne"); return; }
+  const m=UI.month==="all"?new Date().getMonth():UI.month;
+  const cible=Math.round(payeAmt(l)*100)/100, fait=Math.max(0,misVersCompte(l.acct,m));
+  let amt=Math.round((cible-fait)*100)/100; if(amt<=0) amt=cible;
+  if(!amt){ toast("Indique un objectif pour cette ligne"); return; }
   const a=acct(l.acct);
   UI.edit={type:"transfer",date:todayISO(),montant:amt,from:"cc",to:l.acct,note:"Épargne du mois"+(a?" — "+a.name:"")};
   UI.type="tr"; UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
