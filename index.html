@@ -1133,24 +1133,33 @@ function logCryptoValue(pid){ const p=DB.cryptoTrack.find(x=>x.id===pid); if(!p)
 function delCryptoEntry(pid,date){ const p=DB.cryptoTrack.find(x=>x.id===pid); if(!p)return; p.history=p.history.filter(e=>e.date!==date); save(); render(); }
 function delCryptoPlatform(pid){ if(!confirm("Supprimer cette plateforme et tout son historique ?"))return; DB.cryptoTrack=DB.cryptoTrack.filter(x=>x.id!==pid); save(); render(); }
 
-/* ===================== BUDGET (simple : à dépenser + enveloppes €/mois & €/an) ===================== */
-/* Ce que tu peux DÉPENSER = compte courant + portefeuille. Caisse & Livret A = épargne (pas ici). */
-function dispoReel(){ const b=computeBalances(); return Math.round((Math.max(0,b.cc||0)+Math.max(0,b.portefeuille||0))*100)/100; }
+/* ===================== BUDGET (paye = à dépenser · soutiens : portefeuille, puis caisse+Livret A) ===================== */
+function soutienReel(){ const b=computeBalances(); return {
+  porte:Math.max(0,Math.round((b.portefeuille||0)*100)/100),
+  caisse:Math.max(0,Math.round((b.caisse||0)*100)/100),
+  livretA:Math.max(0,Math.round((b.livretA||0)*100)/100) }; }
 function aDepenser(){ return DB.aDepenser||0; }
 function setADepenser(v){ DB.aDepenser=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
 /* plafond = limite mensuelle de la catégorie (un prix annuel se convertit en mensuel via ÷12) */
 function catPlafond(c){ return Math.round((+c.budget||0)*100)/100; }
 function aDepenserCardHTML(totPlaf){
-  const dep=aDepenser(), dispo=dispoReel(), reste=Math.round((dep-totPlaf)*100)/100, ok=totPlaf<=dep, pct=dep?Math.min(totPlaf/dep*100,100):0;
-  return `<div class="card"><h2>💶 Ce que j'ai à dépenser ce mois-ci</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Écris l'argent que tu peux dépenser ce mois-ci (ton <b>compte courant + portefeuille</b>). L'app vérifie juste que tes enveloppes rentrent dedans. Ta <b>caisse</b> et ton <b>Livret A</b>, c'est de l'épargne — ça ne compte pas ici.</div>
-    <div class="field" style="margin:0"><label>J'ai à dépenser (€)</label><input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${dep||""}" onchange="setADepenser(this.value)"></div>
-    ${dispo>0&&Math.round(dispo)!==Math.round(dep)?`<button class="btn ghost sm" style="width:auto;margin-top:8px" onclick="setADepenser(${dispo})">Utiliser mon solde réel (${eur0(dispo)})</button>`:""}
-    ${dep>0&&totPlaf>0?`<div class="bbar" style="margin-top:12px">
-      <div class="top"><span><b>Mes enveloppes</b></span><span style="color:${ok?'var(--pos)':'var(--neg)'}">${eur0(totPlaf)} <span class="muted">/ ${eur0(dep)}</span></span></div>
-      <div class="track"><div class="fill" style="width:${pct}%;background:${ok?'var(--accent)':'var(--neg)'}"></div></div>
-      <div class="muted" style="font-size:12.5px;margin-top:4px">${ok?`✅ Ça rentre — il te reste <b class="pos">${eur0(reste)}</b> non dépensé (ton épargne possible).`:`🔴 Tes enveloppes dépassent de <b class="neg">${eur0(-reste)}</b> ce que tu as à dépenser — baisse quelques limites.`}</div>
+  const paye=aDepenser(), s=soutienReel();
+  const t2=Math.round((paye+s.porte)*100)/100, tert=Math.round((s.caisse+s.livretA)*100)/100, t3=Math.round((t2+tert)*100)/100;
+  const pct=paye?Math.min(totPlaf/paye*100,100):0;
+  let col, msg;
+  if(totPlaf<=paye){ col='var(--pos)'; msg=`✅ Ça rentre dans ta paye — il te reste <b class="pos">${eur0(paye-totPlaf)}</b> (ton épargne possible).`; }
+  else if(totPlaf<=t2){ col='var(--warn)'; msg=`🟡 Ça dépasse ta paye de <b>${eur0(totPlaf-paye)}</b> — ton <b>portefeuille</b> (${eur0(s.porte)}) peut compléter.`; }
+  else if(totPlaf<=t3){ col='var(--warn)'; msg=`🟠 Ça dépasse ta paye + ton portefeuille — il faudrait piocher <b>${eur0(totPlaf-t2)}</b> dans ta <b>caisse</b> ou ton <b>Livret A</b> (dernier recours).`; }
+  else { col='var(--neg)'; msg=`🔴 Ça dépasse tout ce que tu as (${eur0(t3)}) de <b class="neg">${eur0(totPlaf-t3)}</b> — baisse quelques limites.`; }
+  return `<div class="card"><h2>💶 Ma paye — ce que j'ai à dépenser</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Ta <b>paye</b>, c'est ce que tu as à dépenser dans tes enveloppes. En soutien il y a ton <b>portefeuille</b>, et en dernier recours ta <b>caisse</b> et ton <b>Livret A</b>.</div>
+    <div class="field" style="margin:0"><label>Ma paye ce mois-ci (€)</label><input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${paye||""}" onchange="setADepenser(this.value)"></div>
+    ${paye>0&&totPlaf>0?`<div class="bbar" style="margin-top:12px">
+      <div class="top"><span><b>Mes enveloppes</b></span><span style="color:${col}">${eur0(totPlaf)} <span class="muted">/ ${eur0(paye)}</span></span></div>
+      <div class="track"><div class="fill" style="width:${pct}%;background:${col==='var(--pos)'?'var(--accent)':col}"></div></div>
+      <div class="muted" style="font-size:12.5px;margin-top:4px">${msg}</div>
     </div>`:""}
+    <div class="muted" style="font-size:12px;margin-top:8px">Soutien : 👛 portefeuille <b>${eur0(s.porte)}</b> · dernier recours : 💰 caisse <b>${eur0(s.caisse)}</b> + 🐷 Livret A <b>${eur0(s.livretA)}</b></div>
   </div>`;
 }
 function viewBudget(){
