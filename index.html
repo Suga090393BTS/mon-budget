@@ -271,6 +271,8 @@ function ensureDefaults(){
   if(!DB.trained||typeof DB.trained!=="object") DB.trained={};
   if(!DB.paye||typeof DB.paye!=="object") DB.paye={montant:0,lines:[]};
   if(!Array.isArray(DB.paye.lines)) DB.paye.lines=[];
+  /* migration : anciennes lignes libres {nom,dest} → lignes par catégorie / compte */
+  DB.paye.lines.forEach(l=>{ if(l.cat===undefined&&l.acct===undefined){ l.acct=(l.dest&&l.dest!=="cc")?l.dest:""; l.cat=""; l.sub=l.sub||""; delete l.dest; delete l.nom; } });
   if(DB.contratHebdo==null) DB.contratHebdo=42;
   DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
   if(!Array.isArray(DB.cryptoTrack)){ DB.cryptoTrack=[{id:"sb",nom:"Swissborg",history:[]},{id:"av",nom:"Assurance vie",history:[]}]; DB.avSeeded=true; }
@@ -1158,23 +1160,25 @@ function viewBudget(){
 }
 function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
 
-/* ===================== DÉCOUPER MA PAYE ===================== */
+/* ===================== DÉCOUPER MA PAYE (par catégories / sous-catégories) ===================== */
 function payeAmt(l){ const base=DB.paye.montant||0; return l.mode==="pct"? base*(l.val||0)/100 : (l.val||0); }
 function payeCardHTML(m){
   const p=DB.paye, base=p.montant||0;
   const revM=flowOf(m).rev;
   const tot=p.lines.reduce((a,l)=>a+payeAmt(l),0), reste=base-tot;
+  const selOpts=l=>`<option value="">— Choisir —</option>
+    <optgroup label="🏷️ Mes catégories">${activeCats().map(c=>`<option value="cat:${escH(c.name)}" ${l.cat===c.name?"selected":""}>${c.emoji} ${escH(c.name)}</option>`).join("")}</optgroup>
+    <optgroup label="🏦 Virement vers un compte (épargne…)">${DB.accounts.filter(a=>a.active&&a.id!=="cc").map(a=>`<option value="acct:${a.id}" ${l.acct===a.id?"selected":""}>${a.emoji} ${a.name}</option>`).join("")}</optgroup>`;
   const rows=p.lines.map(l=>{ const amt=payeAmt(l);
+    const subSel=(l.cat&&subsOf(l.cat).length)?`<select style="flex:1;min-width:125px" onchange="payeSet('${l.id}','sub',this.value)">
+        <option value="">Toute la catégorie</option>${subsOf(l.cat).map(s=>`<option ${l.sub===s?"selected":""}>${escH(s)}</option>`).join("")}</select>`:"";
     return `<div class="setrow" style="flex-wrap:wrap">
-      <input class="si" style="min-width:105px" value="${escH(l.nom)}" placeholder="Nom (ex : Livret A)" onchange="payeSet('${l.id}','nom',this.value)">
-      <select style="flex:1;min-width:130px" onchange="payeSet('${l.id}','dest',this.value)">
-        <option value="cc" ${l.dest==="cc"?"selected":""}>💼 Reste sur le compte</option>
-        ${DB.accounts.filter(a=>a.active&&a.id!=="cc").map(a=>`<option value="${a.id}" ${l.dest===a.id?"selected":""}>${a.emoji} ${a.name}</option>`).join("")}
-      </select>
+      <select style="flex:1.4;min-width:150px" onchange="payeSet('${l.id}','sel',this.value)">${selOpts(l)}</select>
+      ${subSel}
       <input class="mini" type="number" min="0" step="1" value="${l.val||""}" onchange="payeSet('${l.id}','val',this.value)">
       <button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Basculer € / % de la paye" onclick="payeSet('${l.id}','mode','${l.mode==="pct"?"eur":"pct"}')">${l.mode==="pct"?"%":"€"}</button>
       <b style="min-width:64px;text-align:right">${eur0(amt)}</b>
-      ${l.dest!=="cc"?`<button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Préparer le virement" onclick="payeTransfer('${l.id}')">⇄</button>`:""}
+      ${l.acct?`<button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Préparer le virement" onclick="payeTransfer('${l.id}')">⇄</button>`:""}
       <button class="del" onclick="payeDel('${l.id}')">🗑️</button>
     </div>`;}).join("");
   const pct=base?Math.min(tot/base*100,100):0;
@@ -1183,8 +1187,9 @@ function payeCardHTML(m){
       <div class="track"><div class="fill" style="width:${pct}%;background:${tot>base?'var(--neg)':'var(--accent)'}"></div></div>
       <div class="muted" style="font-size:12.5px;margin-top:4px">${reste>=0?`Reste à répartir : <b class="pos">${eur0(reste)}</b>`:`⚠️ Tu répartis <b class="neg">${eur0(-reste)}</b> de plus que ta paye.`}</div>
     </div>`:"";
+  const hasCatLines=p.lines.some(l=>l.cat&&payeAmt(l)>0);
   return `<div class="card"><h2>💶 Découper ma paye</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Indique ta paye, puis répartis-la : ce qui reste sur le compte pour le quotidien, ce qui part sur le Livret A, la caisse, les placements… Le bouton <b>⇄</b> prépare le virement correspondant.</div>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Indique ta paye, puis répartis-la <b>entre tes catégories</b> (et si besoin par sous-catégorie), plus ce qui part en épargne. Le bouton <b>⇄</b> prépare le virement, et <b>🎯</b> transforme ta découpe en plafonds d'enveloppes.</div>
     <div class="row2" style="align-items:end">
       <div class="field" style="margin:0"><label>Ma paye ce mois-ci (€)</label><input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${base||""}" onchange="setPaye(this.value)"></div>
       <div>${revM>0&&Math.round(revM)!==Math.round(base)?`<button class="btn ghost sm" onclick="setPaye(${revM})">Utiliser mes entrées de ${MONTHS[m]} (${eur0(revM)})</button>`:"<span></span>"}</div>
@@ -1194,33 +1199,42 @@ function payeCardHTML(m){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <button class="btn ghost sm" style="width:auto" onclick="payeAddLine()">➕ Ajouter une ligne</button>
       ${!p.lines.length?`<button class="btn ghost sm" style="width:auto" onclick="payeProposer()">💡 Me proposer une découpe</button>`:""}
+      ${hasCatLines?`<button class="btn ghost sm" style="width:auto" onclick="payeApplyBudgets()">🎯 En faire mes plafonds d'enveloppes</button>`:""}
     </div></div>`;
 }
 function setPaye(v){ DB.paye.montant=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
-function payeAddLine(){ DB.paye.lines.push({id:uid(),nom:"",dest:"cc",mode:"eur",val:0}); save(); render(); }
+function payeAddLine(){ DB.paye.lines.push({id:uid(),cat:"",sub:"",acct:"",mode:"eur",val:0}); save(); render(); }
 function payeSet(id,f,v){ const l=DB.paye.lines.find(x=>x.id===id); if(!l)return;
-  if(f==="val") l.val=Math.max(0,parseFloat(String(v).replace(",","."))||0); else l[f]=v; save(); render(); }
+  if(f==="val") l.val=Math.max(0,parseFloat(String(v).replace(",","."))||0);
+  else if(f==="sel"){ if(v.indexOf("cat:")===0){ l.cat=v.slice(4); l.acct=""; l.sub=""; } else if(v.indexOf("acct:")===0){ l.acct=v.slice(5); l.cat=""; l.sub=""; } else { l.cat=""; l.acct=""; l.sub=""; } }
+  else l[f]=v; save(); render(); }
 function payeDel(id){ DB.paye.lines=DB.paye.lines.filter(x=>x.id!==id); save(); render(); }
+/* proposition : une ligne par catégorie (plafond d'enveloppe si défini, sinon moyenne dépensée), le reste → épargne */
 function payeProposer(){
   let base=DB.paye.montant||0;
   if(!base){ base=Math.round(avgRevenu()); if(base) DB.paye.montant=base; }
   if(!base){ toast("Indique d'abord le montant de ta paye 🙏"); return; }
-  const avg=avgMensuel();
-  const liv=DB.accounts.find(a=>a.id==="livretA"&&a.active)?"livretA":"cc";
-  const r10=x=>Math.max(0,Math.round(x/10)*10);
-  let ess=avg.total?Math.min(r10(avg.besoin),base):r10(base*0.5);
-  let env=avg.total?Math.min(r10(avg.envie),Math.max(0,base-ess)):r10(base*0.3);
-  const ep=Math.max(0,base-ess-env);
-  DB.paye.lines=[
-    {id:uid(),nom:"Essentiels du quotidien",dest:"cc",mode:"eur",val:ess},
-    {id:uid(),nom:"Plaisirs",dest:"cc",mode:"eur",val:env},
-    {id:uid(),nom:"Épargne",dest:liv,mode:"eur",val:ep}
-  ];
-  save(); render(); toast("Découpe proposée d'après ton train de vie 💡");
+  const n=Math.max(1,monthsWithDep().length); const per={};
+  DB.transactions.filter(isDepense).forEach(t=>{ const c=t.categorie||""; if(c) per[c]=(per[c]||0)+Math.abs(t.montant); });
+  const lines=[];
+  activeCats().forEach(c=>{ const amt=c.budget>0?Math.round(c.budget):Math.round((per[c.name]||0)/n);
+    if(amt>0) lines.push({id:uid(),cat:c.name,sub:"",acct:"",mode:"eur",val:amt}); });
+  const tot=lines.reduce((a,l)=>a+l.val,0);
+  if(base-tot>0&&DB.accounts.find(a=>a.id==="livretA"&&a.active))
+    lines.push({id:uid(),cat:"",sub:"",acct:"livretA",mode:"eur",val:Math.round((base-tot)*100)/100});
+  if(!lines.length){ toast("Pas encore assez d'historique — ajoute tes lignes à la main"); return; }
+  DB.paye.lines=lines; save(); render(); toast("Découpe proposée : tes catégories + le reste en épargne 💡");
 }
-function payeTransfer(id){ const l=DB.paye.lines.find(x=>x.id===id); if(!l)return;
+function payeApplyBudgets(){
+  const per={}; DB.paye.lines.forEach(l=>{ if(l.cat) per[l.cat]=(per[l.cat]||0)+payeAmt(l); });
+  let n=0; DB.categories.forEach(c=>{ if(per[c.name]!=null){ c.budget=Math.round(per[c.name]*100)/100; n++; } });
+  if(!n){ toast("Ajoute d'abord des lignes par catégorie"); return; }
+  save(); render(); toast(n+" plafond(s) d'enveloppe mis à jour 🎯");
+}
+function payeTransfer(id){ const l=DB.paye.lines.find(x=>x.id===id); if(!l||!l.acct)return;
   const amt=Math.round(payeAmt(l)*100)/100; if(!amt){ toast("Indique un montant pour cette ligne"); return; }
-  UI.edit={type:"transfer",date:todayISO(),montant:amt,from:"cc",to:l.dest,note:l.nom||"Découpe de paye"};
+  const a=acct(l.acct);
+  UI.edit={type:"transfer",date:todayISO(),montant:amt,from:"cc",to:l.acct,note:"Découpe de paye"+(a?" — "+a.name:"")};
   UI.type="tr"; UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
 
 /* ===================== OBJECTIFS D'ÉPARGNE ===================== */
@@ -1725,7 +1739,7 @@ window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
 window.starLib=starLib;window.setLib=setLib;window.delLib=delLib;window.addLib=addLib;
-window.setPaye=setPaye;window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeProposer=payeProposer;window.payeTransfer=payeTransfer;
+window.setPaye=setPaye;window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeProposer=payeProposer;window.payeTransfer=payeTransfer;window.payeApplyBudgets=payeApplyBudgets;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 /* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
 function effectiveDark(){ const t=STORE.get("theme"); if(t==="dark")return true; if(t==="light")return false;
