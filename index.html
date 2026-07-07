@@ -1134,13 +1134,24 @@ function delCryptoPlatform(pid){ if(!confirm("Supprimer cette plateforme et tout
 /* ===================== BUDGET (paye + enveloppes fusionnées) ===================== */
 /* espèces = filet de secours (caisse + portefeuille, un solde négatif est ignoré) */
 function cashDispo(){ const b=computeBalances(); return Math.max(0,b.caisse||0)+Math.max(0,b.portefeuille||0); }
-function subPlafSum(c){ const sb=c.subBudgets; return sb?Object.values(sb).reduce((a,v)=>a+(+v||0),0):0; }
+/* somme des sous-plafonds en équivalent mensuel : un plafond "à l'année" compte pour son douzième (la provision) */
+function subYearly(c,s){ return !!(c.subYearly&&c.subYearly[s]); }
+function subPlafSum(c){ const sb=c.subBudgets; if(!sb) return 0;
+  return Object.keys(sb).reduce((a,s)=>{ const v=+sb[s]||0; return a+(subYearly(c,s)? v/12 : v); },0); }
 function catPlafond(c){ const ss=subPlafSum(c); if(ss>0) return ss;
   return c.bpct ? Math.round((DB.paye.montant||0)*(c.budget||0))/100 : (c.budget||0); }
 function viewBudget(){
   const m=UI.month==="all"?new Date().getMonth():UI.month;
   const tx=txOfMonth(m).filter(isDepense);
-  const spent={}; tx.forEach(t=>{const c=t.categorie||"Autres"; spent[c]=(spent[c]||0)+Math.abs(t.montant);});
+  /* dépenses du mois par catégorie — les sous-catégories "à l'année" sont lissées :
+     leurs dépenses réelles sortent du mois, remplacées par la provision mensuelle (plafond/12) */
+  const spent={}; tx.forEach(t=>{const cn=t.categorie||"Autres", s=(t.sousCategorie||"").trim();
+    const cat=DB.categories.find(x=>x.name===cn);
+    if(cat&&s&&subYearly(cat,s)) return;
+    spent[cn]=(spent[cn]||0)+Math.abs(t.montant);});
+  DB.categories.forEach(c=>{ if(!c.active||!c.subYearly||!c.subBudgets) return;
+    Object.keys(c.subYearly).forEach(s=>{ const v=+c.subBudgets[s]||0;
+      if(c.subYearly[s]&&v>0) spent[c.name]=(spent[c.name]||0)+Math.round(v/12*100)/100; }); });
   const cats=DB.categories.map((c,i)=>({c,i,b:catPlafond(c),s:spent[c.name]||0})).filter(x=>x.c.active);
   const withB=cats.filter(x=>x.b>0).sort((a,b)=>(b.s/b.b)-(a.s/a.b));
   const noB=cats.filter(x=>x.b<=0&&x.s>0).sort((a,b)=>b.s-a.s);
@@ -1161,20 +1172,29 @@ function viewBudget(){
     const perSub={}; let sans=0;
     tx.forEach(t=>{ if((t.categorie||"Autres")!==x.c.name) return; const s=(t.sousCategorie||"").trim();
       if(s&&subs.includes(s)) perSub[s]=(perSub[s]||0)+Math.abs(t.montant); else sans+=Math.abs(t.montant); });
-    const row=(label,sp,b,j)=>{ const r=b?sp/b:0, col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)";
+    /* dépenses sur les 12 derniers mois, pour les sous-catégories suivies à l'année */
+    const d=new Date(); d.setFullYear(d.getFullYear()-1);
+    const cut=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    const sp12={}; DB.transactions.filter(isDepense).forEach(t=>{ if((t.categorie||"")!==x.c.name) return;
+      if((t.date||"")<cut) return; const s=(t.sousCategorie||"").trim(); if(s) sp12[s]=(sp12[s]||0)+Math.abs(t.montant); });
+    const row=(label,sp,b,j,an)=>{ const r=b?sp/b:0, col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)";
       return `<div style="padding:5px 0;border-bottom:1px dashed var(--line)">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">
-          <span style="font-size:12px;flex:1;min-width:100px">${escH(label)}</span>
-          <span style="font-size:11.5px;color:${b?col:'var(--muted)'}">${eur0(sp)}${b?` <span class="muted">/ ${eur0(b)}</span>`:""}</span>
-          ${j!=null?`<span style="font-size:11px;display:inline-flex;align-items:center;gap:3px" class="muted">plafond <input type="number" min="0" step="5" placeholder="—" value="${b||""}" onchange="setSubBudget(${x.i},${j},this.value)" style="width:60px;padding:3px 5px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);text-align:right"> €</span>`:`<span style="font-size:11px" class="muted">non détaillé</span>`}
+          <span style="font-size:12px;flex:1;min-width:100px">${escH(label)}${an?' <span class="tag" style="font-size:9.5px">annuel</span>':''}</span>
+          <span style="font-size:11.5px;color:${b?col:'var(--muted)'}">${eur0(sp)}${b?` <span class="muted">/ ${eur0(b)}${an?" sur 12 mois":""}</span>`:""}</span>
+          ${j!=null?`<span style="font-size:11px;display:inline-flex;align-items:center;gap:3px" class="muted">plafond <input type="number" min="0" step="5" placeholder="—" value="${b||""}" onchange="setSubBudget(${x.i},${j},this.value)" style="width:60px;padding:3px 5px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);text-align:right">
+            <button class="btn ghost sm" style="width:auto;padding:3px 7px;font-size:10.5px" title="Basculer plafond par mois / par an (dépense annuelle lissée)" onclick="toggleSubYearly(${x.i},${j})">€/${an?"an":"mois"}</button>
+            ${an&&b?`<span class="muted">≈ ${eur0(b/12)}/mois</span>`:""}</span>`:`<span style="font-size:11px" class="muted">non détaillé</span>`}
         </div>
         ${b?`<div class="track" style="height:5px;margin-top:3px"><div class="fill" style="width:${Math.min(r*100,100)}%;background:${col}"></div></div>`:""}
       </div>`;};
-    const rows=subs.map((s,j)=>row(s,perSub[s]||0,+sb[s]||0,j)).join("")+(sans>0?row("(sans sous-catégorie)",sans,0,null):"");
+    const rows=subs.map((s,j)=>{ const an=subYearly(x.c,s);
+      return row(s,an?(sp12[s]||0):(perSub[s]||0),+sb[s]||0,j,an); }).join("")
+      +(sans>0?row("(sans sous-catégorie)",sans,0,null,false):"");
     const som=subPlafSum(x.c);
     return `<div style="margin-top:6px">${btn}
       <div style="margin-top:4px;padding:2px 0 0 10px;border-left:2px solid var(--line)">${rows}
-      <div class="muted" style="font-size:11px;margin-top:5px">${som>0?`Somme du détail : <b>${eur0(som)}</b> — c'est le plafond de l'enveloppe.`:`Indique un plafond par sous-catégorie : leur somme deviendra le plafond de l'enveloppe.`}</div></div></div>`;};
+      <div class="muted" style="font-size:11px;margin-top:5px">${som>0?`Somme du détail : <b>${eur0(som)}</b>/mois — c'est le plafond de l'enveloppe (un plafond « €/an » compte pour sa provision mensuelle, soit son douzième).`:`Indique un plafond par sous-catégorie : leur somme deviendra le plafond de l'enveloppe. Pour un abonnement annuel, bascule sur <b>€/an</b> et saisis le prix à l'année — l'app provisionne le douzième chaque mois.`}</div></div></div>`;};
   const bar=x=>{const r=x.b?x.s/x.b:0,pct=Math.min(r*100,100),col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)",reste=x.b-x.s;
     return `<div class="bbar"><div class="top"><span>${x.c.emoji} <b>${x.c.name}</b></span>
       <span style="color:${col}">${eur0(x.s)} <span class="muted">/ ${eur0(x.b)}</span></span></div>
@@ -1207,6 +1227,13 @@ function setSubBudget(i,j,v){ const c=DB.categories[i]; if(!c)return; const s=(s
   if(!c.subBudgets||typeof c.subBudgets!=="object") c.subBudgets={};
   if(val>0) c.subBudgets[s]=val; else delete c.subBudgets[s];
   if(!Object.keys(c.subBudgets).length) delete c.subBudgets;
+  save(); render(); }
+function toggleSubYearly(i,j){ const c=DB.categories[i]; if(!c)return; const s=(subsOf(c.name)||[])[j]; if(s==null)return;
+  const an=subYearly(c,s); const v=+((c.subBudgets||{})[s])||0;
+  if(!c.subYearly||typeof c.subYearly!=="object") c.subYearly={};
+  if(an){ delete c.subYearly[s]; if(v>0){ c.subBudgets[s]=Math.round(v/12*100)/100; } }
+  else { c.subYearly[s]=true; if(v>0){ if(!c.subBudgets)c.subBudgets={}; c.subBudgets[s]=Math.round(v*12*100)/100; } }
+  if(!Object.keys(c.subYearly).length) delete c.subYearly;
   save(); render(); }
 function toggleCatBudgetMode(i){ const c=DB.categories[i]; if(!c)return; const base=DB.paye.montant||0;
   if(c.bpct){ c.budget=catPlafond(c); c.bpct=false; }
@@ -1782,7 +1809,7 @@ window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
 window.starLib=starLib;window.setLib=setLib;window.delLib=delLib;window.addLib=addLib;
-window.setPaye=setPaye;window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.toggleCatBudgetMode=toggleCatBudgetMode;window.proposerPlafonds=proposerPlafonds;window.budToggle=budToggle;window.setSubBudget=setSubBudget;
+window.setPaye=setPaye;window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.toggleCatBudgetMode=toggleCatBudgetMode;window.proposerPlafonds=proposerPlafonds;window.budToggle=budToggle;window.setSubBudget=setSubBudget;window.toggleSubYearly=toggleSubYearly;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 /* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
 function effectiveDark(){ const t=STORE.get("theme"); if(t==="dark")return true; if(t==="light")return false;
