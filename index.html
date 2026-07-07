@@ -1132,12 +1132,11 @@ function delCryptoEntry(pid,date){ const p=DB.cryptoTrack.find(x=>x.id===pid); i
 function delCryptoPlatform(pid){ if(!confirm("Supprimer cette plateforme et tout son historique ?"))return; DB.cryptoTrack=DB.cryptoTrack.filter(x=>x.id!==pid); save(); render(); }
 
 /* ===================== BUDGET (paye + enveloppes fusionnées) ===================== */
-/* base à répartir = paye du mois + espèces disponibles (caisse + portefeuille, chacun ignoré s'il est négatif) */
+/* espèces = filet de secours (caisse + portefeuille, un solde négatif est ignoré) */
 function cashDispo(){ const b=computeBalances(); return Math.max(0,b.caisse||0)+Math.max(0,b.portefeuille||0); }
-function payeBase(){ return (DB.paye.montant||0)+cashDispo(); }
 function subPlafSum(c){ const sb=c.subBudgets; return sb?Object.values(sb).reduce((a,v)=>a+(+v||0),0):0; }
 function catPlafond(c){ const ss=subPlafSum(c); if(ss>0) return ss;
-  return c.bpct ? Math.round(payeBase()*(c.budget||0))/100 : (c.budget||0); }
+  return c.bpct ? Math.round((DB.paye.montant||0)*(c.budget||0))/100 : (c.budget||0); }
 function viewBudget(){
   const m=UI.month==="all"?new Date().getMonth():UI.month;
   const tx=txOfMonth(m).filter(isDepense);
@@ -1151,7 +1150,7 @@ function viewBudget(){
     ?`<span class="muted" style="font-size:11.5px">plafond = somme du détail</span>`
     :`<span style="font-size:11.5px;display:inline-flex;align-items:center;gap:4px">plafond :
       <input type="number" min="0" step="${x.c.bpct?1:10}" placeholder="0" value="${x.c.budget||""}" onchange="setCatBudget(${x.i},this.value)" style="width:70px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right">
-      <button class="btn ghost sm" style="width:auto;padding:4px 8px" title="Basculer € / % du disponible (paye + espèces)" onclick="toggleCatBudgetMode(${x.i})">${x.c.bpct?"%":"€"}</button>
+      <button class="btn ghost sm" style="width:auto;padding:4px 8px" title="Basculer € / % de la paye" onclick="toggleCatBudgetMode(${x.i})">${x.c.bpct?"%":"€"}</button>
       ${x.c.bpct?`<span class="muted">= ${eur0(x.b)}</span>`:""}</span>`;
   const subDetail=x=>{
     const subs=subsOf(x.c.name)||[]; if(!subs.length) return "";
@@ -1209,7 +1208,7 @@ function setSubBudget(i,j,v){ const c=DB.categories[i]; if(!c)return; const s=(s
   if(val>0) c.subBudgets[s]=val; else delete c.subBudgets[s];
   if(!Object.keys(c.subBudgets).length) delete c.subBudgets;
   save(); render(); }
-function toggleCatBudgetMode(i){ const c=DB.categories[i]; if(!c)return; const base=payeBase();
+function toggleCatBudgetMode(i){ const c=DB.categories[i]; if(!c)return; const base=DB.paye.montant||0;
   if(c.bpct){ c.budget=catPlafond(c); c.bpct=false; }
   else { if(base>0&&c.budget>0) c.budget=Math.round((c.budget||0)/base*1000)/10; c.bpct=true; }
   save(); render(); }
@@ -1224,24 +1223,30 @@ function proposerPlafonds(){
 }
 
 /* ===================== MA PAYE + ÉPARGNE (fusion avec les enveloppes) ===================== */
-function payeAmt(l){ return l.mode==="pct"? payeBase()*(l.val||0)/100 : (l.val||0); }
+function payeAmt(l){ return l.mode==="pct"? (DB.paye.montant||0)*(l.val||0)/100 : (l.val||0); }
 function payeCardHTML(m){
-  const paye=DB.paye.montant||0, cash=cashDispo(), base=payeBase(), revM=flowOf(m).rev, bal=computeBalances();
+  const paye=DB.paye.montant||0, cash=cashDispo(), revM=flowOf(m).rev, bal=computeBalances();
   const totB=activeCats().reduce((a,c)=>a+catPlafond(c),0);
   const ep=DB.paye.lines.reduce((a,l)=>a+payeAmt(l),0);
-  const totPlan=totB+ep, reste=base-totPlan, pct=base?Math.min(totPlan/base*100,100):0;
-  return `<div class="card"><h2>💶 À répartir ce mois-ci</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Ta paye <b>plus tes espèces</b> (caisse + portefeuille) forment ce que tu as à répartir entre tes <b>plafonds d'enveloppes</b> et ton <b>épargne</b>.</div>
+  const plan=totB+ep;
+  const okPaye=plan<=paye, okCash=plan<=paye+cash;
+  const col=okPaye?'var(--pos)':okCash?'var(--warn)':'var(--neg)';
+  const pct=paye?Math.min(plan/paye*100,100):0;
+  return `<div class="card"><h2>💶 Mon budget vs ma paye</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Tes plafonds sont un <b>budget approximatif</b> — pas besoin de tout répartir. On vérifie juste que l'ensemble <b>tient dans ta paye</b>, avec tes espèces en secours.</div>
     <div class="row2" style="align-items:end">
       <div class="field" style="margin:0"><label>Ma paye ce mois-ci (€)</label><input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${paye||""}" onchange="setPaye(this.value)"></div>
       <div>${revM>0&&Math.round(revM)!==Math.round(paye)?`<button class="btn ghost sm" onclick="setPaye(${revM})">Utiliser mes entrées de ${MONTHS[m]} (${eur0(revM)})</button>`:"<span></span>"}</div>
     </div>
-    <div class="muted" style="font-size:12px;margin-top:8px">💰 Espèces : caisse ${eur0(bal.caisse||0)} + portefeuille ${eur0(bal.portefeuille||0)}${((bal.caisse||0)<0||(bal.portefeuille||0)<0)?' <span style="color:var(--warn)">(un solde négatif ne compte pas)</span>':''} → <b>${eur0(cash)}</b> pris en compte · Total à répartir : <b>${eur0(base)}</b></div>
-    ${base>0&&totPlan>0?`<div class="bbar" style="margin-top:12px">
-      <div class="top"><span><b>Réparti</b></span><span style="color:${totPlan>base?'var(--neg)':'var(--pos)'}">${eur0(totPlan)} <span class="muted">/ ${eur0(base)}</span></span></div>
-      <div class="track"><div class="fill" style="width:${pct}%;background:${totPlan>base?'var(--neg)':'var(--accent)'}"></div></div>
-      <div class="muted" style="font-size:12.5px;margin-top:4px">${reste>=0?`Reste à répartir : <b class="pos">${eur0(reste)}</b> <span class="muted">· enveloppes ${eur0(totB)} + épargne ${eur0(ep)}</span>`:`⚠️ Enveloppes + épargne dépassent ton disponible de <b class="neg">${eur0(-reste)}</b>.`}</div>
+    ${paye>0&&plan>0?`<div class="bbar" style="margin-top:12px">
+      <div class="top"><span><b>Budget prévu</b> <span class="muted" style="font-weight:400">(enveloppes ${eur0(totB)} + épargne ${eur0(ep)})</span></span><span style="color:${col}">${eur0(plan)} <span class="muted">/ ${eur0(paye)}</span></span></div>
+      <div class="track"><div class="fill" style="width:${pct}%;background:${col}"></div></div>
+      <div class="muted" style="font-size:12.5px;margin-top:4px">${
+        okPaye?`✅ Ton budget tient dans ta paye — marge libre : <b class="pos">${eur0(paye-plan)}</b> (rien ne t'oblige à l'affecter).`
+        :okCash?`🟡 Ça dépasse ta paye de <b>${eur0(plan-paye)}</b>, mais tes espèces (${eur0(cash)}) peuvent couvrir.`
+        :`🔴 Ça dépasse ta paye + tes espèces de <b class="neg">${eur0(plan-paye-cash)}</b> — baisse quelques plafonds.`}</div>
     </div>`:""}
+    <div class="muted" style="font-size:12px;margin-top:8px">💰 En secours : caisse ${eur0(bal.caisse||0)} + portefeuille ${eur0(bal.portefeuille||0)}${((bal.caisse||0)<0||(bal.portefeuille||0)<0)?' <span style="color:var(--warn)">(un solde négatif ne compte pas)</span>':''} = <b>${eur0(cash)}</b> d'espèces</div>
   </div>`;
 }
 function epargneCardHTML(){
@@ -1252,7 +1257,7 @@ function epargneCardHTML(){
         ${DB.accounts.filter(a=>a.active&&a.id!=="cc").map(a=>`<option value="${a.id}" ${l.acct===a.id?"selected":""}>${a.emoji} ${a.name}</option>`).join("")}
       </select>
       <input class="mini" type="number" min="0" step="1" value="${l.val||""}" onchange="payeSet('${l.id}','val',this.value)">
-      <button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Basculer € / % du disponible (paye + espèces)" onclick="payeSet('${l.id}','mode','${l.mode==="pct"?"eur":"pct"}')">${l.mode==="pct"?"%":"€"}</button>
+      <button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Basculer € / % de la paye" onclick="payeSet('${l.id}','mode','${l.mode==="pct"?"eur":"pct"}')">${l.mode==="pct"?"%":"€"}</button>
       <b style="min-width:64px;text-align:right">${eur0(amt)}</b>
       ${l.acct?`<button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Préparer le virement" onclick="payeTransfer('${l.id}')">⇄</button>`:""}
       <button class="del" onclick="payeDel('${l.id}')">🗑️</button>
