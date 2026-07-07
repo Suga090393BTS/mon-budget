@@ -1132,7 +1132,12 @@ function delCryptoEntry(pid,date){ const p=DB.cryptoTrack.find(x=>x.id===pid); i
 function delCryptoPlatform(pid){ if(!confirm("Supprimer cette plateforme et tout son historique ?"))return; DB.cryptoTrack=DB.cryptoTrack.filter(x=>x.id!==pid); save(); render(); }
 
 /* ===================== BUDGET (paye + enveloppes fusionnées) ===================== */
-function catPlafond(c){ return c.bpct ? Math.round((DB.paye.montant||0)*(c.budget||0))/100 : (c.budget||0); }
+/* base à répartir = paye du mois + espèces disponibles (caisse + portefeuille, chacun ignoré s'il est négatif) */
+function cashDispo(){ const b=computeBalances(); return Math.max(0,b.caisse||0)+Math.max(0,b.portefeuille||0); }
+function payeBase(){ return (DB.paye.montant||0)+cashDispo(); }
+function subPlafSum(c){ const sb=c.subBudgets; return sb?Object.values(sb).reduce((a,v)=>a+(+v||0),0):0; }
+function catPlafond(c){ const ss=subPlafSum(c); if(ss>0) return ss;
+  return c.bpct ? Math.round(payeBase()*(c.budget||0))/100 : (c.budget||0); }
 function viewBudget(){
   const m=UI.month==="all"?new Date().getMonth():UI.month;
   const tx=txOfMonth(m).filter(isDepense);
@@ -1142,10 +1147,35 @@ function viewBudget(){
   const noB=cats.filter(x=>x.b<=0&&x.s>0).sort((a,b)=>b.s-a.s);
   const totB=withB.reduce((a,x)=>a+x.b,0), totS=Object.values(spent).reduce((a,b)=>a+b,0);
   const ratio=totB?Math.min(totS/totB*100,100):0;
-  const plafInput=x=>`<span style="font-size:11.5px;display:inline-flex;align-items:center;gap:4px">plafond :
+  const plafInput=x=>subPlafSum(x.c)>0
+    ?`<span class="muted" style="font-size:11.5px">plafond = somme du détail</span>`
+    :`<span style="font-size:11.5px;display:inline-flex;align-items:center;gap:4px">plafond :
       <input type="number" min="0" step="${x.c.bpct?1:10}" placeholder="0" value="${x.c.budget||""}" onchange="setCatBudget(${x.i},this.value)" style="width:70px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right">
-      <button class="btn ghost sm" style="width:auto;padding:4px 8px" title="Basculer € / % de la paye" onclick="toggleCatBudgetMode(${x.i})">${x.c.bpct?"%":"€"}</button>
+      <button class="btn ghost sm" style="width:auto;padding:4px 8px" title="Basculer € / % du disponible (paye + espèces)" onclick="toggleCatBudgetMode(${x.i})">${x.c.bpct?"%":"€"}</button>
       ${x.c.bpct?`<span class="muted">= ${eur0(x.b)}</span>`:""}</span>`;
+  const subDetail=x=>{
+    const subs=subsOf(x.c.name)||[]; if(!subs.length) return "";
+    const open=UI.budOpen===x.i;
+    const btn=`<button class="btn ghost sm" style="width:auto;padding:3px 8px;font-size:11px" onclick="budToggle(${x.i})">${open?"▾ masquer le détail":"▸ détail par sous-catégorie"}</button>`;
+    if(!open) return `<div style="margin-top:6px">${btn}</div>`;
+    const sb=x.c.subBudgets||{};
+    const perSub={}; let sans=0;
+    tx.forEach(t=>{ if((t.categorie||"Autres")!==x.c.name) return; const s=(t.sousCategorie||"").trim();
+      if(s&&subs.includes(s)) perSub[s]=(perSub[s]||0)+Math.abs(t.montant); else sans+=Math.abs(t.montant); });
+    const row=(label,sp,b,j)=>{ const r=b?sp/b:0, col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)";
+      return `<div style="padding:5px 0;border-bottom:1px dashed var(--line)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">
+          <span style="font-size:12px;flex:1;min-width:100px">${escH(label)}</span>
+          <span style="font-size:11.5px;color:${b?col:'var(--muted)'}">${eur0(sp)}${b?` <span class="muted">/ ${eur0(b)}</span>`:""}</span>
+          ${j!=null?`<span style="font-size:11px;display:inline-flex;align-items:center;gap:3px" class="muted">plafond <input type="number" min="0" step="5" placeholder="—" value="${b||""}" onchange="setSubBudget(${x.i},${j},this.value)" style="width:60px;padding:3px 5px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);text-align:right"> €</span>`:`<span style="font-size:11px" class="muted">non détaillé</span>`}
+        </div>
+        ${b?`<div class="track" style="height:5px;margin-top:3px"><div class="fill" style="width:${Math.min(r*100,100)}%;background:${col}"></div></div>`:""}
+      </div>`;};
+    const rows=subs.map((s,j)=>row(s,perSub[s]||0,+sb[s]||0,j)).join("")+(sans>0?row("(sans sous-catégorie)",sans,0,null):"");
+    const som=subPlafSum(x.c);
+    return `<div style="margin-top:6px">${btn}
+      <div style="margin-top:4px;padding:2px 0 0 10px;border-left:2px solid var(--line)">${rows}
+      <div class="muted" style="font-size:11px;margin-top:5px">${som>0?`Somme du détail : <b>${eur0(som)}</b> — c'est le plafond de l'enveloppe.`:`Indique un plafond par sous-catégorie : leur somme deviendra le plafond de l'enveloppe.`}</div></div></div>`;};
   const bar=x=>{const r=x.b?x.s/x.b:0,pct=Math.min(r*100,100),col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)",reste=x.b-x.s;
     return `<div class="bbar"><div class="top"><span>${x.c.emoji} <b>${x.c.name}</b></span>
       <span style="color:${col}">${eur0(x.s)} <span class="muted">/ ${eur0(x.b)}</span></span></div>
@@ -1153,10 +1183,11 @@ function viewBudget(){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;flex-wrap:wrap;gap:4px">
         <span class="muted" style="font-size:11.5px">${reste>=0?`reste <b class="pos">${eur0(reste)}</b>`:`dépassé de <b class="neg">${eur0(-reste)}</b>`}</span>
         ${plafInput(x)}
-      </div></div>`;};
-  const noBudgetRows=noB.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 2px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:4px">
+      </div>${subDetail(x)}</div>`;};
+  const noBudgetRows=noB.map(x=>`<div style="padding:8px 2px;border-bottom:1px solid var(--line)">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">
     <span>${x.c.emoji} ${x.c.name} <span class="muted" style="font-size:11.5px">— ${eur0(x.s)} dépensés</span></span>
-    ${plafInput(x)}</div>`).join("");
+    ${plafInput(x)}</div>${subDetail(x)}</div>`).join("");
   return `<div class="pagehead">🎯 Mes enveloppes</div>${monthSelector()}
   ${payeCardHTML(m)}
   <div class="card"><h2>Vue d'ensemble — ${MONTHS[m]}</h2>
@@ -1171,7 +1202,14 @@ function viewBudget(){
   ${epargneCardHTML()}`;
 }
 function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
-function toggleCatBudgetMode(i){ const c=DB.categories[i]; if(!c)return; const base=DB.paye.montant||0;
+function budToggle(i){ UI.budOpen=UI.budOpen===i?null:i; render(); }
+function setSubBudget(i,j,v){ const c=DB.categories[i]; if(!c)return; const s=(subsOf(c.name)||[])[j]; if(s==null)return;
+  const val=Math.max(0,parseFloat(String(v).replace(",","."))||0);
+  if(!c.subBudgets||typeof c.subBudgets!=="object") c.subBudgets={};
+  if(val>0) c.subBudgets[s]=val; else delete c.subBudgets[s];
+  if(!Object.keys(c.subBudgets).length) delete c.subBudgets;
+  save(); render(); }
+function toggleCatBudgetMode(i){ const c=DB.categories[i]; if(!c)return; const base=payeBase();
   if(c.bpct){ c.budget=catPlafond(c); c.bpct=false; }
   else { if(base>0&&c.budget>0) c.budget=Math.round((c.budget||0)/base*1000)/10; c.bpct=true; }
   save(); render(); }
@@ -1186,22 +1224,23 @@ function proposerPlafonds(){
 }
 
 /* ===================== MA PAYE + ÉPARGNE (fusion avec les enveloppes) ===================== */
-function payeAmt(l){ const base=DB.paye.montant||0; return l.mode==="pct"? base*(l.val||0)/100 : (l.val||0); }
+function payeAmt(l){ return l.mode==="pct"? payeBase()*(l.val||0)/100 : (l.val||0); }
 function payeCardHTML(m){
-  const base=DB.paye.montant||0, revM=flowOf(m).rev;
+  const paye=DB.paye.montant||0, cash=cashDispo(), base=payeBase(), revM=flowOf(m).rev, bal=computeBalances();
   const totB=activeCats().reduce((a,c)=>a+catPlafond(c),0);
   const ep=DB.paye.lines.reduce((a,l)=>a+payeAmt(l),0);
   const totPlan=totB+ep, reste=base-totPlan, pct=base?Math.min(totPlan/base*100,100):0;
-  return `<div class="card"><h2>💶 Ma paye</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Indique ta paye : tes <b>plafonds d'enveloppes</b> ci-dessous et ton <b>épargne</b> se répartissent dedans.</div>
+  return `<div class="card"><h2>💶 À répartir ce mois-ci</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Ta paye <b>plus tes espèces</b> (caisse + portefeuille) forment ce que tu as à répartir entre tes <b>plafonds d'enveloppes</b> et ton <b>épargne</b>.</div>
     <div class="row2" style="align-items:end">
-      <div class="field" style="margin:0"><label>Ma paye ce mois-ci (€)</label><input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${base||""}" onchange="setPaye(this.value)"></div>
-      <div>${revM>0&&Math.round(revM)!==Math.round(base)?`<button class="btn ghost sm" onclick="setPaye(${revM})">Utiliser mes entrées de ${MONTHS[m]} (${eur0(revM)})</button>`:"<span></span>"}</div>
+      <div class="field" style="margin:0"><label>Ma paye ce mois-ci (€)</label><input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${paye||""}" onchange="setPaye(this.value)"></div>
+      <div>${revM>0&&Math.round(revM)!==Math.round(paye)?`<button class="btn ghost sm" onclick="setPaye(${revM})">Utiliser mes entrées de ${MONTHS[m]} (${eur0(revM)})</button>`:"<span></span>"}</div>
     </div>
+    <div class="muted" style="font-size:12px;margin-top:8px">💰 Espèces : caisse ${eur0(bal.caisse||0)} + portefeuille ${eur0(bal.portefeuille||0)}${((bal.caisse||0)<0||(bal.portefeuille||0)<0)?' <span style="color:var(--warn)">(un solde négatif ne compte pas)</span>':''} → <b>${eur0(cash)}</b> pris en compte · Total à répartir : <b>${eur0(base)}</b></div>
     ${base>0&&totPlan>0?`<div class="bbar" style="margin-top:12px">
-      <div class="top"><span><b>Répartie</b></span><span style="color:${totPlan>base?'var(--neg)':'var(--pos)'}">${eur0(totPlan)} <span class="muted">/ ${eur0(base)}</span></span></div>
+      <div class="top"><span><b>Réparti</b></span><span style="color:${totPlan>base?'var(--neg)':'var(--pos)'}">${eur0(totPlan)} <span class="muted">/ ${eur0(base)}</span></span></div>
       <div class="track"><div class="fill" style="width:${pct}%;background:${totPlan>base?'var(--neg)':'var(--accent)'}"></div></div>
-      <div class="muted" style="font-size:12.5px;margin-top:4px">${reste>=0?`Reste à répartir : <b class="pos">${eur0(reste)}</b> <span class="muted">· enveloppes ${eur0(totB)} + épargne ${eur0(ep)}</span>`:`⚠️ Enveloppes + épargne dépassent ta paye de <b class="neg">${eur0(-reste)}</b>.`}</div>
+      <div class="muted" style="font-size:12.5px;margin-top:4px">${reste>=0?`Reste à répartir : <b class="pos">${eur0(reste)}</b> <span class="muted">· enveloppes ${eur0(totB)} + épargne ${eur0(ep)}</span>`:`⚠️ Enveloppes + épargne dépassent ton disponible de <b class="neg">${eur0(-reste)}</b>.`}</div>
     </div>`:""}
   </div>`;
 }
@@ -1213,7 +1252,7 @@ function epargneCardHTML(){
         ${DB.accounts.filter(a=>a.active&&a.id!=="cc").map(a=>`<option value="${a.id}" ${l.acct===a.id?"selected":""}>${a.emoji} ${a.name}</option>`).join("")}
       </select>
       <input class="mini" type="number" min="0" step="1" value="${l.val||""}" onchange="payeSet('${l.id}','val',this.value)">
-      <button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Basculer € / % de la paye" onclick="payeSet('${l.id}','mode','${l.mode==="pct"?"eur":"pct"}')">${l.mode==="pct"?"%":"€"}</button>
+      <button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Basculer € / % du disponible (paye + espèces)" onclick="payeSet('${l.id}','mode','${l.mode==="pct"?"eur":"pct"}')">${l.mode==="pct"?"%":"€"}</button>
       <b style="min-width:64px;text-align:right">${eur0(amt)}</b>
       ${l.acct?`<button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Préparer le virement" onclick="payeTransfer('${l.id}')">⇄</button>`:""}
       <button class="del" onclick="payeDel('${l.id}')">🗑️</button>
@@ -1738,7 +1777,7 @@ window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
 window.starLib=starLib;window.setLib=setLib;window.delLib=delLib;window.addLib=addLib;
-window.setPaye=setPaye;window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.toggleCatBudgetMode=toggleCatBudgetMode;window.proposerPlafonds=proposerPlafonds;
+window.setPaye=setPaye;window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.toggleCatBudgetMode=toggleCatBudgetMode;window.proposerPlafonds=proposerPlafonds;window.budToggle=budToggle;window.setSubBudget=setSubBudget;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 /* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
 function effectiveDark(){ const t=STORE.get("theme"); if(t==="dark")return true; if(t==="light")return false;
