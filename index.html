@@ -757,7 +757,7 @@ function viewSaisie(){
         <div class="field"><label>Catégorie</label><select id="fCat" onchange="onCatChange()">${catOptions(e.categorie)}</select></div>
         <div class="field"><label>Sous-catégorie</label><select id="fSub">${subOptions(e.categorie,e.sousCategorie)}</select></div></div>
       <div class="row2">
-        <div class="field"><label>Compte</label><select id="fCompte" onchange="espSync()">${acctOptions(e.compte||(t==='dep'?'cc':'cc'))}</select></div>
+        <div class="field"><label>Compte</label><select id="fCompte" onchange="onCompteChange()">${acctOptions(e.compte||(t==='dep'?'cc':'cc'))}</select></div>
         <div class="field"><label>Moyen de paiement</label><select id="fMoyen">${moyenOptions(e.moyen||(t==='dep'?'CB':'VIR'))}</select></div></div>
       ${esp}
       <div class="field"><label>Observation (facultatif — n'apparaît pas dans la liste)</label><textarea id="fObs" rows="2" placeholder="Une note perso pour t'en souvenir…">${(e.observation||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea></div>`;
@@ -1218,6 +1218,15 @@ function espPanelHTML(){
         <span class="muted">Total compté</span><b id="espTotal">0,00 €</b></div>
     </div></div>`;
 }
+/* choisir la caisse ou le portefeuille, c'est forcément de l'argent liquide : on met « Espèces » tout seul */
+function onCompteChange(){
+  const c=document.getElementById("fCompte"), m=document.getElementById("fMoyen");
+  if(c&&m){
+    if(isCashAcct(c.value)){ if(m.value!=="ES") m.value="ES"; }
+    else if(m.value==="ES") m.value=(UI.type==="dep")?"CB":"VIR";   /* on quitte l'espèces : on remet le moyen habituel */
+  }
+  espSync();
+}
 function espToggle(){ const b=document.getElementById("espBody"), t=document.getElementById("espBtn"); if(!b||!t)return;
   const hidden=b.style.display==="none"; b.style.display=hidden?"":"none"; t.textContent=hidden?"Masquer":"Afficher"; }
 /* affiche le détail seulement si un compte espèces est concerné, et explique ce qui va se passer */
@@ -1531,11 +1540,55 @@ function viewIA(){
 }
 
 /* ===================== RAPPORT MENSUEL ===================== */
-function miniRank(byCat,total,col){ const rows=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
-  if(!rows.length) return `<div class="muted" style="font-size:12.5px;padding:4px 0">Rien sur cette période.</div>`;
-  const max=rows[0][1];
-  return rows.map(r=>`<div class="bbar"><div class="top"><span>${catEmoji(r[0].split(" / ")[0])} <b>${r[0]}</b></span><span><b>${eur0(r[1])}</b> <span class="muted">(${total?Math.round(r[1]/total*100):0}%)</span></span></div>
-    <div class="track"><div class="fill" style="width:${Math.max(r[1]/max*100,3)}%;background:${col}"></div></div></div>`).join(""); }
+function moisMaj(m){ const s=MONTHS[m]||""; return s.charAt(0).toUpperCase()+s.slice(1); }
+/* une couleur par catégorie, toujours la même — pour repérer d'un coup d'œil à qui appartient une ligne */
+const CAT_COLORS=["#4f8ff7","#e0854a","#4fb783","#df5f6b","#9d7ede","#3fb0c4","#d4a537","#dd6f9c","#79b23c","#8a6f5e","#5c7ce0","#c76fd0"];
+function catColor(name){
+  let i=DB.categories.findIndex(c=>c.name===name);
+  if(i<0){ i=0; for(let k=0;k<name.length;k++) i=(i*31+name.charCodeAt(k))>>>0; }
+  return CAT_COLORS[i%CAT_COLORS.length];
+}
+/* ce qui a été dépensé ce mois-ci : catégorie par catégorie, puis sous-catégorie par sous-catégorie */
+function depDetail(m){
+  const cats={};
+  txOfMonth(m).filter(isDepense).forEach(t=>{
+    const c=t.categorie||"Autres", s=t.sousCategorie||"Sans sous-catégorie", v=Math.abs(t.montant);
+    const e=cats[c]||(cats[c]={name:c,tot:0,subs:{}});
+    e.tot+=v; e.subs[s]=(e.subs[s]||0)+v;
+  });
+  return Object.values(cats).sort((a,b)=>b.tot-a.tot)
+    .map(e=>({name:e.name, tot:e.tot, subs:Object.entries(e.subs).sort((a,b)=>b[1]-a[1])}));
+}
+/* le détail complet : une ligne de progression par catégorie, et une par sous-catégorie en dessous */
+function ouPartMonArgentHTML(m){
+  const det=depDetail(m), tot=det.reduce((a,e)=>a+e.tot,0);
+  if(!tot) return `<div class="card"><h2>📊 Où part mon argent — ${moisMaj(m)}</h2>
+    <div class="empty">Aucune dépense enregistrée sur ce mois.</div></div>`;
+  const maxCat=det[0].tot;
+  const blocs=det.map(e=>{
+    const col=catColor(e.name), maxSub=e.subs[0][1];
+    const subs=e.subs.map(([s,v])=>`<div style="margin-top:9px">
+      <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px">
+        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${s}</span>
+        <span style="white-space:nowrap"><b>${eur0(v)}</b> <span class="muted">${Math.round(v/e.tot*100)}%</span></span></div>
+      <div style="height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-top:4px">
+        <div style="height:100%;border-radius:99px;width:${Math.max(v/maxSub*100,4)}%;background:${col};opacity:.5"></div></div>
+    </div>`).join("");
+    return `<div style="padding:13px 0;border-bottom:1px solid var(--line)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <span style="font-weight:800;display:flex;align-items:center;gap:8px;min-width:0">
+          <span style="flex:none;width:11px;height:11px;border-radius:4px;background:${col}"></span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${catEmoji(e.name)} ${e.name}</span></span>
+        <span style="white-space:nowrap"><b>${eur0(e.tot)}</b> <span class="muted">${Math.round(e.tot/tot*100)}%</span></span></div>
+      <div style="height:10px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-top:7px">
+        <div style="height:100%;border-radius:99px;width:${Math.max(e.tot/maxCat*100,4)}%;background:${col}"></div></div>
+      ${subs}</div>`;
+  }).join("");
+  return `<div class="card"><h2>📊 Où part mon argent — ${moisMaj(m)}</h2>
+    <div class="muted" style="font-size:12px;margin-bottom:4px">Chaque catégorie a sa couleur. La barre pleine, c'est la catégorie ; les barres claires en dessous, ses sous-catégories. Total dépensé : <b>${eur0(tot)}</b>.</div>
+    ${blocs}
+    <button class="btn ghost sm" onclick="go('besoins')" style="margin-top:12px">✂️ Choisir ce qui est essentiel →</button></div>`;
+}
 function viewRapport(){
   const m = UI.month==="all" ? new Date().getMonth() : UI.month;
   const fl=flowOf(m), split=depByBesoin(m), bal=computeBalances();
@@ -1552,64 +1605,68 @@ function viewRapport(){
   if(revRef>0 && planEss+planEp>revRef){ planEp=Math.max(0,revRef-planEss); planPlaisir=0; }
   const thin = avg.n<2;
 
+  const pctBesoin = split.total?Math.round(split.besoin/split.total*100):0;
+  const topEnvies = Object.entries(split.byCatE).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  const up=upcoming(30);
+
   return `<div class="pagehead">📋 Mon rapport mensuel</div>
   ${monthSelector()}
-  ${thin?`<div class="card" style="border:1px solid var(--warn)"><div class="insight" style="margin:0;background:transparent"><div class="em">💡</div><div class="it" style="font-size:12.5px">Tu n'as pour l'instant que <b>${avg.n||0} mois</b> de données. Les moyennes et le « train de vie » s'afficheront mais s'affineront au fur et à mesure que tu saisis tes opérations.</div></div></div>`:""}
+  ${thin?`<div class="card" style="border:1px solid var(--warn)"><div class="insight" style="margin:0;background:transparent"><div class="em">💡</div><div class="it" style="font-size:12.5px">Tu n'as que <b>${avg.n||0} mois</b> de données : les moyennes s'affineront au fil de tes saisies.</div></div></div>`:""}
 
-  <div class="card"><h2>⏪ PASSÉ — ${MONTHS[m]} (réalisé)</h2>
-    ${fluxRow("💼 Revenus encaissés","+"+eur(fl.rev),"var(--pos)")}
-    ${fluxRow("🧷 Dépenses essentielles (besoin)","−"+eur(split.besoin),"var(--neg)")}
-    ${fluxRow("🎈 Dépenses plaisir (envie)","−"+eur(split.envie),"var(--warn)")}
-    ${fluxRow("🐷 Épargne mise de côté","−"+eur(fl.epargne),"var(--info)")}
-    ${fluxRow("✅ Reste disponible",(fl.dispo>=0?"":"−")+eur(Math.abs(fl.dispo)),fl.dispo>=0?"var(--pos)":"var(--neg)",true)}
-    <div class="muted" style="font-size:11.5px;margin-top:8px">Sur tes dépenses du mois, <b>${pctEnvie}%</b> sont des « envies » (non essentielles) — c'est là que se trouvent tes marges d'économie.</div>
+  <div class="card"><h2>${moisMaj(m)} en un coup d'œil</h2>
+    <div class="grid" style="grid-template-columns:repeat(2,1fr)">
+      <div class="kpi"><div class="lbl">Revenus</div><div class="val pos">${eur0(fl.rev)}</div></div>
+      <div class="kpi"><div class="lbl">Dépenses</div><div class="val neg">${eur0(split.total)}</div></div>
+      <div class="kpi"><div class="lbl">Mis de côté</div><div class="val">${eur0(fl.epargne)}</div></div>
+      <div class="kpi"><div class="lbl">Reste disponible</div><div class="val ${fl.dispo>=0?'pos':'neg'}">${eur0(fl.dispo)}</div></div>
+    </div>
+    ${split.total?`<div style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px">
+        <span>🧷 Essentiel <b>${eur0(split.besoin)}</b></span><span>🎈 Plaisir <b>${eur0(split.envie)}</b></span></div>
+      <div style="display:flex;height:12px;border-radius:99px;overflow:hidden;background:var(--surface-2)">
+        <div style="width:${pctBesoin}%;background:var(--info)"></div><div style="flex:1;background:var(--warn)"></div></div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px">${pctEnvie}% de tes dépenses sont des envies${topEnvies.length?` — surtout ${topEnvies.map(e=>`<b>${e[0]}</b>`).join(", ")}`:""}.</div>
+    </div>`:""}
   </div>
 
-  <div class="card"><h2>⏺️ PRÉSENT — état actuel</h2>
+  ${ouPartMonArgentHTML(m)}
+
+  <div class="card"><h2>⏺️ Où j'en suis aujourd'hui</h2>
     <div class="grid kpis">
       <div class="kpi"><div class="lbl">Dispo au quotidien</div><div class="val ${dispo>=0?'pos':'neg'}">${eur0(dispo)}</div></div>
       <div class="kpi"><div class="lbl">Épargne & placements</div><div class="val">${eur0(epargneTot)}</div></div>
       <div class="kpi"><div class="lbl">Patrimoine total</div><div class="val">${eur0(patrimoine)}</div></div>
     </div>
-    <div class="muted" style="font-size:11.5px;margin-top:6px">« Dispo » = compte courant + caisse + portefeuille. Le reste est mis de côté (livret, placements, crypto…).</div>
+    <div class="muted" style="font-size:11.5px;margin-top:8px">« Dispo » = compte courant + caisse + portefeuille.</div>
   </div>
 
-  <div class="card"><h2>🏠 TON TRAIN DE VIE <span class="tag">moyenne /mois</span></h2>
-    ${fluxRow("🧷 Vie essentielle (besoin)","≈ "+eur0(avg.besoin)+" /mois","var(--text)",true)}
-    ${fluxRow("🎈 Plaisirs (envie)","≈ "+eur0(avg.envie)+" /mois","var(--warn)")}
-    ${fluxRow("💰 Coût de vie total","≈ "+eur0(avg.total)+" /mois","var(--neg)",true)}
-    ${avgRev>0?fluxRow("💼 Revenu moyen","≈ "+eur0(avgRev)+" /mois","var(--pos)"):""}
-    ${avgRev>0?fluxRow("📈 Capacité d'épargne théorique","≈ "+eur0(avgRev-avg.total)+" /mois",(avgRev-avg.total)>=0?"var(--pos)":"var(--neg)",true):""}
-    <div class="muted" style="font-size:11.5px;margin-top:8px">Calculé sur la moyenne de tes <b>${avg.n||0}</b> mois saisis. C'est le chiffre clé pour fixer un budget stable.</div>
+  <div class="card"><h2>🏠 Mon train de vie <span class="tag">moyenne /mois</span></h2>
+    ${fluxRow("🧷 Vie essentielle","≈ "+eur0(avg.besoin),"var(--text)")}
+    ${fluxRow("🎈 Plaisirs","≈ "+eur0(avg.envie),"var(--warn)")}
+    ${fluxRow("💰 Coût de vie total","≈ "+eur0(avg.total),"var(--neg)",true)}
+    ${avgRev>0?fluxRow("💼 Revenu moyen","≈ "+eur0(avgRev),"var(--pos)"):""}
+    ${avgRev>0?fluxRow("📈 Ce que tu peux épargner","≈ "+eur0(avgRev-avg.total),(avgRev-avg.total)>=0?"var(--pos)":"var(--neg)",true):""}
+    <div class="muted" style="font-size:11.5px;margin-top:8px">Moyenne de tes <b>${avg.n||0}</b> mois saisis.</div>
   </div>
 
-  ${cf.items.length?`<div class="card"><h2>🔁 Tes charges fixes récurrentes</h2>
+  ${cf.items.length?`<div class="card"><h2>🔁 Mes charges fixes</h2>
     ${cf.items.sort((a,b)=>b.v-a.v).map(it=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)"><span>${it.kind==='epargne'?'🐷':'📌'} ${it.nom} <span class="muted" style="font-size:11px">(${it.fr})</span></span><b style="color:${it.kind==='epargne'?'var(--info)':'var(--neg)'}">${eur0(it.v)}/mois</b></div>`).join("")}
-    ${fluxRow("Total engagements récurrents","−"+eur0(cf.dep)+(cf.epargne?" + "+eur0(cf.epargne)+" épargne":""),"var(--text)",true)}
-    <div class="muted" style="font-size:11.5px;margin-top:6px">Issu de tes paiements programmés dans « À venir » (ramenés au mois).</div>
+    ${fluxRow("Total par mois","−"+eur0(cf.dep)+(cf.epargne?" + "+eur0(cf.epargne)+" épargne":""),"var(--text)",true)}
   </div>`:""}
 
-  <div class="card"><h2>✂️ NÉCESSAIRE vs NON-NÉCESSAIRE — ${MONTHS[m]}</h2>
-    <div style="font-weight:800;margin:4px 0 6px;color:var(--neg)">🧷 Essentielles — ${eur0(split.besoin)}</div>
-    ${miniRank(split.byCatB,split.total,'var(--neg)')}
-    <div style="font-weight:800;margin:14px 0 6px;color:var(--warn)">🎈 Non essentielles (leviers d'économie) — ${eur0(split.envie)}</div>
-    ${miniRank(split.byCatE,split.total,'var(--warn)')}
-    <button class="btn ghost sm" onclick="go('besoins')" style="margin-top:12px">✂️ Choisir ce qui est essentiel (catégories & sous-catégories) →</button>
+  <div class="card"><h2>⏩ Ce qui m'attend</h2>
+    ${dev.elapsed<dev.dim?`<div class="insight"><div class="em">📅</div><div class="it">Au rythme actuel, <b>${MONTHS[dev.refMonth]}</b> finira autour de <span class="hl">${eur0(dev.projMonth)}</span> de dépenses.</div></div>`:""}
+    ${up.length?`<div class="insight"><div class="em">📌</div><div class="it"><b>${up.length}</b> paiement(s) prévu(s) sous 30 jours, pour <b>${eur0(up.reduce((a,f)=>a+Math.abs(f.montant),0))}</b>.</div></div>`:""}
+    ${avg.envie>0?`<div class="insight"><div class="em">✂️</div><div class="it">Tes envies réduites de moitié, c'est <b class="pos">≈ ${eur0(avg.envie/2)}/mois</b> économisés — <b>${eur0(avg.envie/2*12)}</b> sur l'année.</div></div>`:""}
   </div>
 
-  <div class="card"><h2>⏩ FUTUR — prévisions</h2>
-    ${dev.elapsed<dev.dim?`<div class="insight"><div class="em">📅</div><div class="it">Au rythme actuel, <b>${MONTHS[dev.refMonth]}</b> devrait finir autour de <span class="hl">${eur0(dev.projMonth)}</span> de dépenses.</div></div>`:""}
-    ${(()=>{const up=upcoming(30);return up.length?`<div class="insight"><div class="em">📌</div><div class="it"><b>${up.length}</b> paiement(s) prévu(s) dans les 30 prochains jours, pour <b>${eur0(up.reduce((a,f)=>a+Math.abs(f.montant),0))}</b>.</div></div>`:"";})()}
-    ${avg.envie>0?`<div class="insight"><div class="em">✂️</div><div class="it">Si tu réduisais tes « envies » de moitié, tu économiserais <b class="pos">≈ ${eur0(avg.envie/2)}/mois</b> (soit <b>${eur0(avg.envie/2*12)}/an</b>).</div></div>`:""}
-  </div>
-
-  ${revRef>0?`<div class="card" style="border:1px solid var(--accent)"><h2>🎯 Ton budget à valeurs fixes (proposition)</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:8px">Sur la base d'un revenu moyen de <b>${eur0(revRef)}/mois</b>, voici une répartition stable d'un mois sur l'autre :</div>
-    ${fluxRow("🧷 Essentiels (incompressible)",eur0(planEss),"var(--text)")}
+  ${revRef>0?`<div class="card" style="border:1px solid var(--accent)"><h2>🎯 Ma répartition idéale</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:8px">Pour un revenu moyen de <b>${eur0(revRef)}/mois</b> :</div>
+    ${fluxRow("🧷 Essentiels",eur0(planEss),"var(--text)")}
     ${fluxRow("🎈 Enveloppe plaisir",eur0(planPlaisir),"var(--warn)")}
-    ${fluxRow("🐷 Épargne (objectif ~20%)",eur0(planEp),"var(--info)")}
+    ${fluxRow("🐷 Épargne (~20%)",eur0(planEp),"var(--info)")}
     ${fluxRow("Total",eur0(planEss+planPlaisir+planEp),"var(--accent)",true)}
-    ${planEss>revRef?`<div class="muted" style="font-size:11.5px;margin-top:8px;color:var(--neg)">⚠️ Tes dépenses essentielles dépassent déjà ton revenu moyen — il faut réduire certaines charges fixes en priorité.</div>`:`<div class="muted" style="font-size:11.5px;margin-top:8px">Garde l'enveloppe plaisir comme une limite à ne pas dépasser : c'est ce qui rend ton budget prévisible.</div>`}
+    ${planEss>revRef?`<div class="muted" style="font-size:11.5px;margin-top:8px;color:var(--neg)">⚠️ Tes essentiels dépassent déjà ton revenu moyen — c'est là qu'il faut agir en premier.</div>`:`<div class="muted" style="font-size:11.5px;margin-top:8px">L'enveloppe plaisir est une limite à ne pas dépasser : c'est ce qui rend le budget prévisible.</div>`}
   </div>`:""}
 
   <button class="btn ghost" onclick="go('ia')" style="margin-top:4px">← Retour à l'Assistant</button>`;
@@ -1939,7 +1996,7 @@ window.go=go;window.setType=setType;window.onCatChange=onCatChange;window.applyS
 window.renderTxList=renderTxList;window.editTx=editTx;window.delTx=delTx;window.addFuture=addFuture;window.futurePay=futurePay;
 window.futureCancel=futureCancel;window.futureDelete=futureDelete;window.futureEdit=futureEdit;window.setAcc=setAcc;window.calibAcc=calibAcc;window.addAcct=addAcct;window.setCat=setCat;
 window.openCompteur=openCompteur;window.recalcCaisse=recalcCaisse;window.saveCaisse=saveCaisse;window.nextRecount=nextRecount;
-window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.espToggle=espToggle;
+window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.espToggle=espToggle;window.onCompteChange=onCompteChange;
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
 window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setConges=setConges;
