@@ -580,7 +580,7 @@ function render(){
   m.innerHTML=v();
   updateTop();
   if(UI.tab==="dash") drawBars("barsDash");
-  if(UI.tab==="saisie") bindSaisie();
+  if(UI.tab==="saisie"){ bindSaisie(); espSync(); }
   if(UI.tab==="tx") renderTxList();
   if(UI.tab==="compteur") recalcCaisse();
   if(UI.tab==="ia") drawNet("netBars");
@@ -733,6 +733,7 @@ function acctOptions(sel){ return DB.accounts.filter(a=>a.active).map(a=>`<optio
 function viewSaisie(){
   const e=UI.edit||{};
   const t=UI.type;
+  const esp=(UI.edit&&UI.edit.id)?"":espPanelHTML();   /* détail billets/pièces : seulement à la création */
   const common=`<div class="row2">
       <div class="field"><label>Montant (€)</label><input id="fMontant" type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${e.montant?Math.abs(e.montant):''}"></div>
       <div class="field"><label>Date</label><input id="fDate" type="date" value="${e.date||todayISO()}"></div></div>`;
@@ -740,8 +741,9 @@ function viewSaisie(){
   if(t==="tr"){
     body=common+`
       <div class="row2">
-        <div class="field"><label>Du compte</label><select id="fFrom">${acctOptions(e.from||'cc')}</select></div>
-        <div class="field"><label>Vers le compte</label><select id="fTo">${acctOptions(e.to||'caisse')}</select></div></div>
+        <div class="field"><label>Du compte</label><select id="fFrom" onchange="espSync()">${acctOptions(e.from||'cc')}</select></div>
+        <div class="field"><label>Vers le compte</label><select id="fTo" onchange="espSync()">${acctOptions(e.to||'caisse')}</select></div></div>
+      ${esp}
       <div class="field"><label>Libellé (facultatif)</label><input id="fNote" placeholder="Ex : Retrait DAB, virement épargne…" value="${(e.note||'').replace(/"/g,'&quot;')}"></div>
       <div class="field"><label>Observation (facultatif — n'apparaît pas dans la liste)</label><textarea id="fObs" rows="2" placeholder="Une note perso pour t'en souvenir…">${(e.observation||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea></div>`;
   } else {
@@ -755,8 +757,9 @@ function viewSaisie(){
         <div class="field"><label>Catégorie</label><select id="fCat" onchange="onCatChange()">${catOptions(e.categorie)}</select></div>
         <div class="field"><label>Sous-catégorie</label><select id="fSub">${subOptions(e.categorie,e.sousCategorie)}</select></div></div>
       <div class="row2">
-        <div class="field"><label>Compte</label><select id="fCompte">${acctOptions(e.compte||(t==='dep'?'cc':'cc'))}</select></div>
+        <div class="field"><label>Compte</label><select id="fCompte" onchange="espSync()">${acctOptions(e.compte||(t==='dep'?'cc':'cc'))}</select></div>
         <div class="field"><label>Moyen de paiement</label><select id="fMoyen">${moyenOptions(e.moyen||(t==='dep'?'CB':'VIR'))}</select></div></div>
+      ${esp}
       <div class="field"><label>Observation (facultatif — n'apparaît pas dans la liste)</label><textarea id="fObs" rows="2" placeholder="Une note perso pour t'en souvenir…">${(e.observation||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea></div>`;
   }
   const editing=!!(UI.edit&&UI.edit.id);
@@ -847,9 +850,11 @@ function saveTx(){
     const from=document.getElementById("fFrom").value, to=document.getElementById("fTo").value;
     if(from===to){ toast("Choisis deux comptes différents"); return; }
     const obj={id:eid||uid(),type:"transfer",date,montant:Math.abs(mont),from,to,note:document.getElementById("fNote").value.trim(),observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():"")};
+    const espT=readEsp()||(UI.edit&&UI.edit.esp); if(espT) obj.esp=espT;   /* on garde le détail même si on modifie l'opération */
     commit(obj,eid); return;
   }
-  const obj={ id:eid||uid(), date, montant:(UI.type==="dep"?-1:1)*Math.abs(mont),
+  const espE=readEsp()||(UI.edit&&UI.edit.esp);   /* on garde le détail même si on modifie l'opération */
+  const obj={ id:eid||uid(), date, montant:(UI.type==="dep"?-1:1)*Math.abs(mont), esp:espE||undefined,
     note:document.getElementById("fNote").value.trim(), categorie:document.getElementById("fCat").value,
     sousCategorie:document.getElementById("fSub").value, compte:document.getElementById("fCompte").value,
     moyen:document.getElementById("fMoyen").value, observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():""), periode:(UI.edit&&UI.edit.periode)||"" };
@@ -861,12 +866,23 @@ function commit(obj,eid){
   else { DB.transactions.push(obj); toast("Opération ajoutée ✅"); }
   /* apprentissage : ce libellé → cette catégorie (reproposé la prochaine fois) */
   if(obj.type!=="transfer"&&obj.note&&obj.categorie){ if(!DB.trained)DB.trained={}; DB.trained[obj.note.trim().toLowerCase()]=[obj.categorie,obj.sousCategorie||""]; }
+  /* Détail en billets/pièces : on met à jour le décompte tout seul, plus besoin de recompter */
+  let auto=[];
+  if(!eid&&obj.esp){
+    if(obj.type==="transfer"){
+      if(isCashAcct(obj.to)&&applyEsp(obj.to,obj.esp,1)) auto.push(obj.to);
+      if(isCashAcct(obj.from)&&applyEsp(obj.from,obj.esp,-1)) auto.push(obj.from);
+    } else { const ra=resolveAccount(obj); if(isCashAcct(ra)&&applyEsp(ra,obj.esp,obj.montant>0?1:-1)) auto.push(ra); }
+    if(auto.length) toast("Ajouté ✅ · décompte de "+auto.map(acctName).join(" et ")+" mis à jour 💵");
+  }
   UI.edit=null; save();
   /* Après une opération espèces : ouvrir le recomptage du/des compte(s) concerné(s) */
   let cashAccts=[];
   if(!eid){ if(obj.type==="transfer") cashAccts=[obj.from,obj.to].filter(isCashAcct);
     else { const ra=resolveAccount(obj); if(isCashAcct(ra)) cashAccts=[ra]; } }
+  cashAccts=cashAccts.filter(id=>auto.indexOf(id)<0);
   if(cashAccts.length){ UI.recountQueue=cashAccts; UI.afterRecount="tx"; nextRecount(); }
+  else if(auto.length){ UI.compteAcc=auto[0]; UI.tab="compteur"; UI.recountActive=false; renderNav(); render(); window.scrollTo(0,0); }
   else go("tx");
 }
 function nextRecount(){ if(UI.recountQueue&&UI.recountQueue.length){ const id=UI.recountQueue.shift();
@@ -911,19 +927,24 @@ function renderTxList(){
   if(!list.length){ el.innerHTML=`<div class="empty">Aucune opération${txFiltersActive()?' pour ces filtres':''}.</div>`; return; }
   el.innerHTML=list.map(t=>{
     if(t.type==="transfer") return `<div class="tx"><div class="ava">⇄</div>
-      <div class="info"><div class="t1">${t.note||"Transfert"}${t.observation?' 📝':''}</div><div class="t2">${frDate(t.date)} · ${acctName(t.from)} → ${acctName(t.to)}</div></div>
+      <div class="info"><div class="t1">${t.note||"Transfert"}${t.observation?' 📝':''}</div><div class="t2">${frDate(t.date)} · ${acctName(t.from)} → ${acctName(t.to)}${t.esp?'<br>💵 '+espLabel(t.esp):''}</div></div>
       <div class="amt">${eur(t.montant)}</div>
       <button class="del" onclick="editTx('${t.id}')">✏️</button><button class="del" onclick="delTx('${t.id}')">🗑️</button></div>`;
     const dep=t.montant<0;
     return `<div class="tx"><div class="ava">${catEmoji(t.categorie)}</div>
       <div class="info"><div class="t1">${t.note||t.sousCategorie||t.categorie||"Opération"}${t.observation?' 📝':''}</div>
-        <div class="t2">${frDate(t.date)} · ${t.categorie||"—"}${t.sousCategorie?" / "+t.sousCategorie:""} · ${acctName(resolveAccount(t))}</div></div>
+        <div class="t2">${frDate(t.date)} · ${t.categorie||"—"}${t.sousCategorie?" / "+t.sousCategorie:""} · ${acctName(resolveAccount(t))}${t.esp?'<br>💵 '+espLabel(t.esp):''}</div></div>
       <div class="amt ${dep?'neg':'pos'}">${dep?"":"+"}${eur(t.montant)}</div>
       <button class="del" onclick="editTx('${t.id}')">✏️</button><button class="del" onclick="delTx('${t.id}')">🗑️</button></div>`;
   }).join("");
 }
 function editTx(id){ const t=DB.transactions.find(x=>x.id===id); UI.edit=t; UI.type=t.type==="transfer"?"tr":(t.montant<0?"dep":"ent"); UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
-function delTx(id){ if(!confirm("Supprimer cette opération ?"))return; DB.transactions=DB.transactions.filter(t=>t.id!==id); save(); renderTxList(); toast("Supprimé"); }
+function delTx(id){ if(!confirm("Supprimer cette opération ?"))return;
+  const t=DB.transactions.find(x=>x.id===id);
+  if(t&&t.esp){ /* on remet le décompte de caisse comme avant */
+    if(t.type==="transfer"){ if(isCashAcct(t.to))applyEsp(t.to,t.esp,-1); if(isCashAcct(t.from))applyEsp(t.from,t.esp,1); }
+    else { const ra=resolveAccount(t); if(isCashAcct(ra)) applyEsp(ra,t.esp,t.montant>0?-1:1); } }
+  DB.transactions=DB.transactions.filter(x=>x.id!==id); save(); renderTxList(); toast("Supprimé"); }
 
 /* ===================== À VENIR (paiements futurs) ===================== */
 let FNEW={type:"dep"};
@@ -1036,7 +1057,20 @@ function futureDelete(id){ if(!confirm("Supprimer ce paiement prévu ?"))return;
 const DENOMS=[{v:500,l:"500 €"},{v:200,l:"200 €"},{v:100,l:"100 €"},{v:50,l:"50 €"},{v:20,l:"20 €"},{v:10,l:"10 €"},{v:5,l:"5 €"},{v:2,l:"2 €"},{v:1,l:"1 €"},{v:0.5,l:"50 c"},{v:0.2,l:"20 c"},{v:0.1,l:"10 c"},{v:0.05,l:"5 c"},{v:0.02,l:"2 c"},{v:0.01,l:"1 c"}];
 const ROLLN={"0.01":50,"0.02":50,"0.05":50,"0.1":40,"0.2":40,"0.5":40,"1":25,"2":25,"5":100,"10":100,"20":100,"50":100,"100":100,"200":100,"500":100};
 const INSTY="width:76px;font:inherit;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text)";
+/* couleurs réelles des billets et des pièces euro — pour le visuel de la caisse */
+const DENOM_BG={"500":"#b98fd0","200":"#d8c352","100":"#86c79a","50":"#e9a95f","20":"#77a9dd","10":"#e08585","5":"#b9c0c9",
+  "2":"radial-gradient(circle,#d0d5da 54%,#d8bd6e 55%)","1":"radial-gradient(circle,#d8bd6e 54%,#d0d5da 55%)",
+  "0.5":"#d9b14a","0.2":"#d9b14a","0.1":"#d9b14a","0.05":"#c1743f","0.02":"#c1743f","0.01":"#c1743f"};
 function denomKey(v){ return "d"+String(v).replace(".","_"); }
+function isNote(v){ return v>=5; }
+function looseWord(v,n){ return isNote(v)?(n>1?"billets":"billet"):(n>1?"pièces":"pièce"); }
+function packWord(v,n){ return isNote(v)?(n>1?"liasses":"liasse"):(n>1?"rouleaux":"rouleau"); }
+/* petite vignette qui ressemble au vrai billet / à la vraie pièce */
+function denomChip(d,big){
+  const bg=DENOM_BG[String(d.v)]||"var(--surface-2)", note=isNote(d.v);
+  const box=note?`width:${big?58:46}px;height:${big?36:29}px;border-radius:5px`:`width:${big?40:33}px;height:${big?40:33}px;border-radius:50%`;
+  return `<span style="flex:none;display:inline-flex;align-items:center;justify-content:center;${box};background:${bg};color:#17202e;font-weight:800;font-size:${note?(big?12:11):(big?11:10)}px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2),0 1px 2px rgba(0,0,0,.2)">${d.l}</span>`;
+}
 function openCompteur(id){ const cash=DB.accounts.filter(a=>a.active&&a.type==="cash"); UI.compteAcc=id||(cash[0]&&cash[0].id)||"caisse"; UI.recountActive=false; UI.tab="compteur"; renderNav(); render(); window.scrollTo(0,0); }
 function viewCompteur(){
   const cash=DB.accounts.filter(a=>a.active&&a.type==="cash");
@@ -1049,10 +1083,10 @@ function viewCompteur(){
   const row=(d)=>{const k=denomKey(d.v),pr=getPR(k),n=allowPack?(ROLLN[String(d.v)]||0):0,pv=Math.round(d.v*n*100)/100;
     const looseLbl=d.v>=5?"billets":"pièces", packLbl=d.v>=5?"liasses":"rouleaux";
     return `<div style="padding:9px 0;border-bottom:1px solid var(--line)">
-      <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:700">${d.l}</span><span class="muted" style="font-size:12.5px" id="st_${k}">—</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">${denomChip(d)}<span style="flex:1"></span><span class="muted" style="font-size:12.5px" id="st_${k}">—</span></div>
       <div style="display:flex;gap:16px;margin-top:6px;flex-wrap:wrap">
-        <label style="font-size:11.5px;color:var(--muted)">${looseLbl}<br><input type="number" min="0" step="1" inputmode="numeric" data-key="${k}" data-kind="p" data-amt="${d.v}" value="${pr.p}" placeholder="0" oninput="recalcCaisse()" style="${INSTY}"></label>
-        ${n?`<label style="font-size:11.5px;color:var(--muted)">${packLbl} <span style="opacity:.7">(×${eur(pv)})</span><br><input type="number" min="0" step="1" inputmode="numeric" data-key="${k}" data-kind="r" data-amt="${pv}" value="${pr.r}" placeholder="0" oninput="recalcCaisse()" style="${INSTY}"></label>`:""}
+        <label style="font-size:11.5px;color:var(--muted)">${looseLbl}<br><input type="number" min="0" step="1" inputmode="numeric" data-key="${k}" data-kind="p" data-den="${d.v}" data-amt="${d.v}" value="${pr.p}" placeholder="0" oninput="recalcCaisse()" style="${INSTY}"></label>
+        ${n?`<label style="font-size:11.5px;color:var(--muted)">${packLbl} <span style="opacity:.7">(×${eur(pv)})</span><br><input type="number" min="0" step="1" inputmode="numeric" data-key="${k}" data-kind="r" data-den="${d.v}" data-amt="${pv}" value="${pr.r}" placeholder="0" oninput="recalcCaisse()" style="${INSTY}"></label>`:""}
       </div></div>`;};
   const hist=(DB.cashCounts||[]).filter(c=>c.acct===a.id).slice().sort((x,y)=>y.date.localeCompare(x.date)).slice(0,12);
   const histHTML=hist.length?hist.map(c=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line)"><span class="muted">${frDate(c.date)}</span><span><b>${eur(c.total)}</b> · écart <span style="color:${Math.abs(c.ecart)<0.005?'var(--pos)':'var(--warn)'}">${c.ecart>0?'+':''}${eur(c.ecart)}</span></span></div>`).join(""):'<div class="muted" style="font-size:12.5px">Aucun comptage enregistré pour l\'instant.</div>';
@@ -1060,6 +1094,7 @@ function viewCompteur(){
   ${UI.recountActive?`<div class="insight" style="background:var(--accent-soft);margin-bottom:14px"><div class="em">⚠️</div><div class="it">Tu as touché à <b>${a.name}</b> — recompte ce qu'il te reste réellement, puis « Caler ».</div></div>`:""}
   <div class="card"><div class="field" style="margin-bottom:4px"><label>Quel compte espèces ?</label>
     <select onchange="UI.compteAcc=this.value;render()">${cash.map(c=>`<option value="${c.id}" ${c.id===a.id?'selected':''}>${c.emoji} ${c.name}</option>`).join("")}</select></div></div>
+  <div id="caisseVisu"></div>
   <div class="card"><h2>💶 Billets${allowPack?" & liasses":""}</h2>${billets.map(row).join("")}</div>
   <div class="card"><h2>🪙 Pièces${allowPack?" & rouleaux":""}</h2>${pieces.map(row).join("")}</div>
   <div class="card">
@@ -1081,7 +1116,76 @@ function recalcCaisse(){ const inputs=[...document.querySelectorAll('#main input
   const ex=document.getElementById('caisseExpected'), ec=document.getElementById('caisseEcart');
   if(ex&&ec){ const exp=parseFloat(ex.dataset.exp)||0, d=Math.round((total-exp)*100)/100;
     ec.textContent=(d>0?"+":"")+eur(d); ec.style.color= Math.abs(d)<0.005?"var(--pos)":"var(--warn)"; }
+  renderCaisseVisu();
   return total; }
+
+/* ---------- Visuel « ma caisse en vrai » + alerte rouleaux / liasses ---------- */
+function caisseState(){
+  const a=acct(UI.compteAcc);
+  const allowPack=!!a && !(a.id==="portefeuille"||a.noPack);
+  const map={};
+  [...document.querySelectorAll('#main input[data-den]')].forEach(inp=>{
+    const k=inp.dataset.key; map[k]=map[k]||{p:0,r:0};
+    map[k][inp.dataset.kind]=parseInt(inp.value)||0;
+  });
+  return {a,allowPack,map};
+}
+function renderCaisseVisu(){
+  const box=document.getElementById("caisseVisu"); if(!box) return;
+  const {a,allowPack,map}=caisseState(); if(!a){ box.innerHTML=""; return; }
+  const tiles=[], packs=[]; let grand=0;
+  DENOMS.forEach(d=>{
+    const k=denomKey(d.v), c=map[k]||{p:0,r:0}, n=allowPack?(ROLLN[String(d.v)]||0):0;
+    const val=Math.round((d.v*c.p + d.v*n*c.r)*100)/100; grand+=val;
+    if(!c.p && !c.r) return;
+    const can=n?Math.floor(c.p/n):0;
+    if(can) packs.push({d,k,n,can});
+    const reste=n?(n-(c.p%n)):0, unPack=isNote(d.v)?"une liasse":"un rouleau";
+    let bar="";
+    if(can) bar=`<div style="font-size:11.5px;margin-top:8px;color:var(--accent);font-weight:700">🎉 ${can} ${packWord(d.v,can)} à faire !</div>`;
+    else if(n && c.p>=n/4) bar=`<div style="height:6px;border-radius:99px;background:var(--surface);overflow:hidden;margin-top:8px"><div style="height:100%;width:${Math.round(c.p/n*100)}%;background:var(--accent)"></div></div>
+      <div class="muted" style="font-size:11px;margin-top:4px">encore <b>${reste}</b> pour ${unPack}</div>`;
+    tiles.push(`<div style="border:1px solid ${can?'var(--accent)':'var(--line)'};border-radius:14px;padding:11px;background:var(--surface-2)">
+      <div style="display:flex;align-items:center;gap:9px">
+        ${denomChip(d,true)}
+        <div style="min-width:0;flex:1">
+          <div style="font-size:19px;font-weight:800;line-height:1.15;white-space:nowrap">×${c.p} <span class="muted" style="font-size:11px;font-weight:600">${looseWord(d.v,c.p)}</span></div>
+          <div style="font-weight:700;font-size:12.5px;white-space:nowrap">${eur(val)}${c.r?` <span class="muted" style="font-weight:600">· ${c.r} ${packWord(d.v,c.r)}</span>`:""}</div>
+        </div>
+      </div>${bar}</div>`);
+  });
+  const alerte=packs.length?`<div class="card" style="border:1.5px solid var(--accent)">
+    <h2>🎉 C'est bon, tu peux regrouper</h2>
+    ${packs.map(p=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)">
+      ${denomChip(p.d)}
+      <div style="flex:1;min-width:0"><b style="font-size:13.5px">${p.can} ${packWord(p.d.v,p.can)} de ${p.d.l}</b>
+        <div class="muted" style="font-size:11.5px">${p.n} ${looseWord(p.d.v,p.n)} par ${packWord(p.d.v,1)} · ${eur(p.d.v*p.n)} chacun</div></div>
+      <button class="btn sm" onclick="makePack('${p.k}',${p.n},${p.can})">C'est fait ✅</button>
+    </div>`).join("")}
+    <div class="muted" style="font-size:11.5px;margin-top:10px">« C'est fait » range les ${looseWord(0.01,2)}/${looseWord(500,2)} dans la colonne ${packWord(0.01,2)}/${packWord(500,2)} : le total ne bouge pas.</div>
+  </div>`:"";
+  box.innerHTML=alerte+`<div class="card">
+    <h2>👀 Dans « ${a.name} », tu as <span class="tag">${eur(Math.round(grand*100)/100)}</span></h2>
+    ${tiles.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">${tiles.join("")}</div>`
+      :`<div class="empty">Rien de compté pour l'instant — remplis les cases plus bas.</div>`}
+    <div class="muted" style="font-size:11.5px;margin-top:10px">Ce que tu tapes en dessous s'affiche ici tout de suite.</div>
+  </div>`;
+}
+function makePack(key,n,count){
+  const p=document.querySelector('#main input[data-key="'+key+'"][data-kind="p"]');
+  const r=document.querySelector('#main input[data-key="'+key+'"][data-kind="r"]');
+  if(!p||!r) return;
+  p.value=Math.max(0,(parseInt(p.value)||0)-n*count);
+  r.value=(parseInt(r.value)||0)+count;
+  persistCashInputs(); recalcCaisse(); toast("Rangé ✅");
+}
+/* enregistre le détail affiché sans toucher au solde (le total est inchangé) */
+function persistCashInputs(){
+  const a=acct(UI.compteAcc); if(!a) return;
+  const {map}=caisseState(), cash={};
+  Object.keys(map).forEach(k=>{ const c=map[k]; if(c.p||c.r){ cash[k]={}; if(c.p)cash[k].p=c.p; if(c.r)cash[k].r=c.r; } });
+  a.cash=cash; save();
+}
 function saveCaisse(){
   const a=acct(UI.compteAcc); if(!a)return;
   const inputs=[...document.querySelectorAll('#main input[data-amt]')]; const cash={}; let total=0;
@@ -1094,6 +1198,79 @@ function saveCaisse(){
   UI.recountActive=false;
   save(); toast("« "+a.name+" » : "+eur(total)+(Math.abs(ecart)>=0.005?" (écart "+(ecart>0?"+":"")+eur(ecart)+")":""));
   if(UI.recountQueue&&UI.recountQueue.length) nextRecount(); else go("dash");
+}
+
+/* ===================== SAISIE EN BILLETS & PIÈCES (toute opération sur un compte espèces) ===================== */
+function espPanelHTML(){
+  const cell=(d)=>`<label style="display:flex;align-items:center;gap:6px;background:var(--surface-2);border-radius:12px;padding:6px 7px">
+    ${denomChip(d)}
+    <input type="number" min="0" step="1" inputmode="numeric" data-esp="${d.v}" placeholder="0" oninput="espCalc()"
+      style="width:100%;min-width:0;font:inherit;font-weight:700;padding:7px 6px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--text)"></label>`;
+  return `<div id="espWrap" style="display:none;margin-bottom:15px;border:1px solid var(--line);border-radius:14px;padding:12px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <b style="font-size:13.5px">💵 Compter les billets et les pièces</b>
+      <button type="button" id="espBtn" class="btn ghost sm" style="margin-left:auto" onclick="espToggle()">Masquer</button>
+    </div>
+    <div id="espBody">
+      <div class="muted" style="font-size:11.5px;margin:7px 0 9px" id="espHint"></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(106px,1fr));gap:7px">${DENOMS.map(cell).join("")}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:11px;font-size:14px">
+        <span class="muted">Total compté</span><b id="espTotal">0,00 €</b></div>
+    </div></div>`;
+}
+function espToggle(){ const b=document.getElementById("espBody"), t=document.getElementById("espBtn"); if(!b||!t)return;
+  const hidden=b.style.display==="none"; b.style.display=hidden?"":"none"; t.textContent=hidden?"Masquer":"Afficher"; }
+/* affiche le détail seulement si un compte espèces est concerné, et explique ce qui va se passer */
+function espSync(){
+  const wrap=document.getElementById("espWrap"); if(!wrap) return;
+  let show=false, hint="";
+  if(UI.type==="tr"){
+    const f=document.getElementById("fFrom"), to=document.getElementById("fTo"); if(!f||!to) return;
+    const cf=isCashAcct(f.value), ct=isCashAcct(to.value);
+    show=cf||ct;
+    if(cf&&ct) hint=`Compte ce que tu déplaces de ${acctName(f.value)} vers ${acctName(to.value)} : le montant se calcule tout seul, et les deux décomptes sont mis à jour.`;
+    else if(ct) hint=`Compte ce qui entre dans ${acctName(to.value)} : le montant se calcule tout seul, et ton décompte est mis à jour.`;
+    else hint=`Compte ce qui sort de ${acctName(f.value)} : le montant se calcule tout seul, et ton décompte est mis à jour.`;
+  } else {
+    const c=document.getElementById("fCompte"); if(!c) return;
+    show=isCashAcct(c.value);
+    if(show) hint=(UI.type==="dep")
+      ? `Compte ce que tu sors de ${acctName(c.value)} : le montant se calcule tout seul, et ton décompte est mis à jour.`
+      : `Compte ce que tu mets dans ${acctName(c.value)} : le montant se calcule tout seul, et ton décompte est mis à jour.`;
+  }
+  wrap.style.display=show?"":"none";
+  const h=document.getElementById("espHint"); if(h) h.textContent=hint;
+  if(!show) document.querySelectorAll('#main input[data-esp]').forEach(i=>i.value="");
+}
+function espCalc(){
+  let tot=0;
+  document.querySelectorAll('#main input[data-esp]').forEach(i=>{ tot+=(parseFloat(i.dataset.esp)||0)*(parseInt(i.value)||0); });
+  tot=Math.round(tot*100)/100;
+  const el=document.getElementById("espTotal"); if(el) el.textContent=eur(tot);
+  const m=document.getElementById("fMontant"); if(m&&tot>0) m.value=tot;   /* le montant suit le détail */
+}
+function readEsp(){
+  const wrap=document.getElementById("espWrap"); if(!wrap||wrap.style.display==="none") return null;
+  const o={}; let n=0;
+  document.querySelectorAll('#main input[data-esp]').forEach(i=>{ const q=parseInt(i.value)||0; if(q>0){ o[i.dataset.esp]=q; n++; } });
+  return n?o:null;
+}
+function espLabel(esp){ return DENOMS.filter(d=>esp[String(d.v)]).map(d=>esp[String(d.v)]+"×"+d.l).join(" · "); }
+/* ajoute (sign=+1) ou retire (sign=−1) ces billets/pièces du décompte d'un compte espèces */
+function applyEsp(acctId,esp,sign){
+  const a=acct(acctId); if(!a||!esp) return false;
+  const allowPack=!(a.id==="portefeuille"||a.noPack);
+  const cash=Object.assign({},a.cash||{});
+  Object.keys(esp).forEach(v=>{
+    const k=denomKey(v), n=allowPack?(ROLLN[String(v)]||0):0, cur=cash[k];
+    let p=0,r=0;
+    if(typeof cur==="number") p=cur; else if(cur){ p=cur.p||0; r=cur.r||0; }
+    p+=sign*esp[v];
+    if(p<0 && n>0 && r>0){ const use=Math.min(r,Math.ceil(-p/n)); r-=use; p+=use*n; }  /* on casse un rouleau/une liasse si besoin */
+    if(p<0) p=0;
+    if(p||r){ cash[k]={}; if(p)cash[k].p=p; if(r)cash[k].r=r; } else delete cash[k];
+  });
+  a.cash=cash; return true;
 }
 
 /* ===================== SUIVI CRYPTO (valeurs réelles datées) ===================== */
@@ -1202,18 +1379,30 @@ function proposerPlafonds(){
 
 /* ===================== OBJECTIFS D'ÉPARGNE (par compte : cible + suivi réel) ===================== */
 function payeAmt(l){ return +l.val||0; }
-/* combien est réellement arrivé sur un compte ce mois-ci (virements entrants − sortants) */
-function misVersCompte(acctId,m){ if(!acctId) return 0; let v=0;
+/* tout ce qui est entré et sorti d'un compte ce mois-ci : virements, mais aussi les
+   entrées saisies directement sur le compte (ex. une entrée d'espèces « AE » dans la caisse)
+   et les dépenses payées depuis ce compte — même calcul que le solde du compte */
+function mouvementsCompte(acctId,m){
+  let e=0,s=0; if(!acctId) return {in:0,out:0,net:0};
+  const add=(x)=>{ if(x>0) e+=x; else s+=-x; };
   txOfMonth(m).forEach(t=>{
-    if(t.type==="transfer"){ if(t.to===acctId) v+=Math.abs(t.montant); if(t.from===acctId) v-=Math.abs(t.montant); }
-    else if(isSavingsTransfer(t)){ if(savingsAccountOf(t)===acctId) v+=-t.montant; }
+    if(t.type==="transfer"){ const v=Math.abs(t.montant);
+      if(t.to===acctId) add(v); if(t.from===acctId) add(-v); return; }
+    if(isActivation(t)) return;
+    if(isSavingsTransfer(t)){ if(savingsAccountOf(t)===acctId) add(-t.montant); return; }
+    if(resolveAccount(t)===acctId) add(t.montant);
   });
-  return Math.round(v*100)/100; }
+  const r=(x)=>Math.round(x*100)/100;
+  return {in:r(e), out:r(s), net:r(e-s)};
+}
+/* combien est réellement arrivé sur un compte ce mois-ci (entrées − sorties) */
+function misVersCompte(acctId,m){ return mouvementsCompte(acctId,m).net; }
 function epargneCardHTML(m){
   const lignes=DB.paye.lines;
   const totCible=lignes.reduce((a,l)=>a+(l.acct?payeAmt(l):0),0);
   const totFait=lignes.reduce((a,l)=>a+(l.acct?Math.max(0,misVersCompte(l.acct,m)):0),0);
-  const rows=lignes.map(l=>{ const cible=payeAmt(l), fait=l.acct?Math.max(0,misVersCompte(l.acct,m)):0;
+  const rows=lignes.map(l=>{ const cible=payeAmt(l), mv=l.acct?mouvementsCompte(l.acct,m):{in:0,out:0,net:0}, fait=Math.max(0,mv.net);
+    const detail=mv.out>0.005?` <span class="muted">(${eur0(mv.in)} entrés − ${eur0(mv.out)} sortis)</span>`:"";
     const r=cible?fait/cible:0, atteint=cible>0&&fait>=cible-0.005, col=atteint?'var(--pos)':'var(--accent)', reste=Math.max(0,cible-fait);
     return `<div class="setrow" style="flex-wrap:wrap;align-items:center">
       <select style="flex:1.4;min-width:150px" onchange="payeSet('${l.id}','acct',this.value)">
@@ -1226,12 +1415,12 @@ function epargneCardHTML(m){
       ${l.acct?`<button class="btn ghost sm" style="width:auto;padding:6px 10px" title="Préparer le virement du reste" onclick="payeTransfer('${l.id}')">⇄</button>`:""}
       <button class="del" onclick="payeDel('${l.id}')">🗑️</button>
       ${l.acct&&cible>0?`<div style="flex-basis:100%;margin-top:2px">
-        <div class="track" style="height:6px"><div class="fill" style="width:${Math.min(r*100,100)}%;background:${col}"></div></div>
-        <div class="muted" style="font-size:11px;margin-top:2px">${atteint?`✅ Objectif atteint — <b>${eur0(fait)}</b> mis ce mois-ci${fait>cible+0.005?` (dont ${eur0(fait-cible)} en plus 🎉)`:""}`:`déjà mis : <b>${eur0(fait)}</b> · reste <b>${eur0(reste)}</b> pour atteindre ton objectif`}</div>
+        <div class="track" style="height:7px;background:var(--surface-2);border-radius:6px;overflow:hidden"><div class="fill" style="height:100%;border-radius:6px;width:${Math.min(r*100,100)}%;background:${col}"></div></div>
+        <div class="muted" style="font-size:11px;margin-top:2px">${atteint?`✅ Objectif atteint — <b>${eur0(fait)}</b> mis ce mois-ci${fait>cible+0.005?` (dont ${eur0(fait-cible)} en plus 🎉)`:""}`:`déjà mis : <b>${eur0(fait)}</b> · reste <b>${eur0(reste)}</b> pour atteindre ton objectif`}${detail}</div>
       </div>`:""}
     </div>`;}).join("");
   return `<div class="card"><h2>🎯 Mes objectifs d'épargne du mois</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Fixe une cible par compte (Livret A, caisse, Swissborg…). Ce sont des <b>objectifs souples</b> : t'en approcher c'est déjà bien, faire moins un mois n'est pas grave. Le <b>⇄</b> prépare le virement du reste.</div>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Fixe une cible par compte (Livret A, caisse, Swissborg…). Ce sont des <b>objectifs souples</b> : t'en approcher c'est déjà bien, faire moins un mois n'est pas grave. Le <b>⇄</b> prépare le virement du reste.<br>Tout ce qui arrive sur le compte compte : les virements <b>et</b> les entrées saisies dessus (une entrée d'espèces dans la caisse, par exemple) — moins ce qui en ressort.</div>
     ${rows||'<div class="muted" style="font-size:12.5px">Aucun objectif d\'épargne pour l\'instant.</div>'}
     ${totCible>0?`<div class="bbar" style="margin-top:12px">
       <div class="top"><span><b>Total mis de côté</b></span><span style="color:${totFait>=totCible-0.005?'var(--pos)':'var(--accent)'}">${eur0(totFait)} <span class="muted">/ ${eur0(totCible)} visés</span></span></div>
@@ -1750,6 +1939,7 @@ window.go=go;window.setType=setType;window.onCatChange=onCatChange;window.applyS
 window.renderTxList=renderTxList;window.editTx=editTx;window.delTx=delTx;window.addFuture=addFuture;window.futurePay=futurePay;
 window.futureCancel=futureCancel;window.futureDelete=futureDelete;window.futureEdit=futureEdit;window.setAcc=setAcc;window.calibAcc=calibAcc;window.addAcct=addAcct;window.setCat=setCat;
 window.openCompteur=openCompteur;window.recalcCaisse=recalcCaisse;window.saveCaisse=saveCaisse;window.nextRecount=nextRecount;
+window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.espToggle=espToggle;
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
 window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setConges=setConges;
