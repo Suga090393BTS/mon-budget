@@ -160,6 +160,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Ar
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media(min-width:880px){.toast{bottom:30px}}
 .pagehead{font-size:20px;font-weight:800;margin:2px 0 16px;letter-spacing:-.4px}
+/* Impression : on ne garde que la feuille du relevé, en noir sur blanc */
+@media print{
+  @page{margin:13mm}
+  .topbar,.sidenav,.bottomnav,.toast,#authOverlay,.no-print{display:none!important}
+  html,body,.app,.shell,.main{background:#fff!important;color:#000!important;padding:0!important;margin:0!important;max-width:none!important;display:block!important}
+  .card{box-shadow:none!important;border:none!important;background:#fff!important;padding:0!important;margin:0!important}
+  .releve{font-size:11.5px}
+  .releve tr{page-break-inside:avoid}
+}
 .setrow{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .setrow:last-child{border-bottom:none}
 .setrow .si{flex:1;min-width:130px}
@@ -576,7 +585,7 @@ function renderNav(){
 function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; UI.serieOpen=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
-  const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
+  const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires,releve:viewReleve}[UI.tab]||viewDash;
   m.innerHTML=v();
   updateTop();
   if(UI.tab==="dash") drawBars("barsDash");
@@ -1772,6 +1781,86 @@ function vacDays(v){ const a=v.du.split("-").map(Number),b=v.au.split("-").map(N
 /* nb de jours d'une période tombant dans une année donnée */
 function vacDaysInYear(v,year){ const y0=year+"-01-01",y1=year+"-12-31"; const du=v.du>y0?v.du:y0, au=v.au<y1?v.au:y1;
   return du>au?0:vacDays({du,au}); }
+/* ---------- RELEVÉ D'HEURES MENSUEL (à remettre à la responsable) ---------- */
+function releveYM(){ return UI.releveMois||todayISO().slice(0,7); }
+function ouvrirReleve(){ UI.releveMois=releveYM(); UI.tab="releve"; renderNav(); render(); window.scrollTo(0,0); }
+function setReleveMois(v){ UI.releveMois=v; render(); }
+function setReleveNom(v){ DB.nomSalarie=(v||"").trim(); save(); }
+function setReleveEmployeur(v){ DB.employeur=(v||"").trim(); save(); }
+function imprimerReleve(){ window.print(); }
+function moisLong(ym){ const p=ym.split("-"); return MOISNOM[+p[1]-1]+" "+p[0]; }
+function viewReleve(){
+  const ym=releveYM(), nbj=daysInMonth(ym);
+  const ents=(DB.horaires||[]).filter(x=>(x.date||"").slice(0,7)===ym);
+  const byDate={}; ents.forEach(x=>{(byDate[x.date]=byDate[x.date]||[]).push(x);});
+  /* la liste des mois proposés : ceux où j'ai saisi des heures, plus le mois en cours */
+  const dispo=[...new Set((DB.horaires||[]).map(x=>(x.date||"").slice(0,7)).filter(Boolean).concat([todayISO().slice(0,7)]))].sort((a,b)=>b.localeCompare(a));
+
+  const BRD="1px solid #bbb", TD=`padding:6px 7px;border:${BRD};color:#000`;
+  let tot=0, jours=0, remplH=0, vacJ=0, rows="";
+  for(let d=1; d<=nbj; d++){
+    const iso=ym+"-"+String(d).padStart(2,"0");
+    const es=(byDate[iso]||[]).slice().sort((a,b)=>(a.debut||"").localeCompare(b.debut||""));
+    const vac=vacOf(iso);
+    if(!es.length&&!vac) continue;
+    if(!es.length){ vacJ++;
+      rows+=`<tr><td style="${TD};text-transform:capitalize">${jourNom(iso)} ${frDate(iso)}</td>
+        <td style="${TD};text-align:center" colspan="3">🏖️ congés${vac.note?" — "+vac.note:""}</td>
+        <td style="${TD};text-align:right">—</td></tr>`;
+      continue; }
+    const h=es.reduce((s,x)=>s+hoursOf(x),0); tot+=h; jours++;
+    const rempl=es.some(x=>x.remplacement); if(rempl) remplH+=h;
+    const pause=es.reduce((s,x)=>s+(parseInt(x.pause)||0),0);
+    const notes=es.map(x=>x.note).filter(Boolean).join(" · ");
+    rows+=`<tr><td style="${TD};text-transform:capitalize">${jourNom(iso)} ${frDate(iso)}</td>
+      <td style="${TD};text-align:center">${es.map(x=>x.debut+" – "+x.fin).join("<br>")}</td>
+      <td style="${TD};text-align:center">${pause?pause+" min":"—"}</td>
+      <td style="${TD};text-align:center">${rempl?"remplacement":""}${rempl&&notes?" · ":""}${notes||(rempl?"":"—")}</td>
+      <td style="${TD};text-align:right;font-weight:700">${fmtH(h)}</td></tr>`;
+  }
+  const du=prevuMois(ym), ecart=tot-du;
+  const nom=DB.nomSalarie||"", emp=DB.employeur||"";
+  const feuille=`<div class="releve" style="background:#fff;color:#000;padding:4px 2px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #000;padding-bottom:10px">
+      <div><div style="font-size:19px;font-weight:800">Relevé d'heures — ${moisLong(ym)}</div>
+        <div style="font-size:12.5px;margin-top:4px">${nom?`<b>${escH(nom)}</b>`:`<i style="color:#777">(indique ton nom ci-dessous)</i>`}${emp?" — "+escH(emp):""}</div></div>
+      <div style="text-align:right;font-size:11.5px;color:#444">Contrat : ${contratHebdo()}h / semaine<br>Édité le ${frDate(todayISO())}</div>
+    </div>
+    ${rows?`<table class="releve" style="width:100%;border-collapse:collapse;font-size:12px;margin-top:12px">
+      <thead><tr style="background:#eee">
+        <th style="${TD};text-align:left">Jour</th><th style="${TD}">Horaires</th>
+        <th style="${TD}">Coupure</th><th style="${TD}">Observation</th><th style="${TD};text-align:right">Heures</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr style="background:#eee"><td style="${TD};font-weight:800" colspan="4">Total du mois — ${jours} jour${jours>1?"s":""} travaillé${jours>1?"s":""}${vacJ?` · ${vacJ} jour${vacJ>1?"s":""} de congés`:""}</td>
+        <td style="${TD};text-align:right;font-weight:800;font-size:14px">${fmtH(tot)}</td></tr></tfoot></table>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:14px">
+        <tr><td style="${TD}">Heures dues au contrat (${contratHebdo()}h/sem × ${nbj} jours ÷ 7)</td><td style="${TD};text-align:right">${fmtH(du)}</td></tr>
+        <tr><td style="${TD}">Heures effectuées</td><td style="${TD};text-align:right;font-weight:700">${fmtH(tot)}</td></tr>
+        <tr><td style="${TD};font-weight:800">Écart</td><td style="${TD};text-align:right;font-weight:800">${ecart>=0?"+":""}${fmtH(ecart)}</td></tr>
+        ${remplH>0?`<tr><td style="${TD}">Dont journées de remplacement</td><td style="${TD};text-align:right">${fmtH(remplH)}</td></tr>`:""}
+      </table>
+      <div style="display:flex;gap:26px;margin-top:34px;font-size:11.5px;color:#000">
+        <div style="flex:1">Signature du salarié<div style="border-bottom:1px solid #000;height:52px"></div></div>
+        <div style="flex:1">Signature du responsable<div style="border-bottom:1px solid #000;height:52px"></div></div>
+      </div>`
+    :`<div style="padding:26px 4px;color:#777;font-size:13px">Aucune heure saisie sur ${moisLong(ym)}.</div>`}
+  </div>`;
+
+  return `<div class="pagehead no-print">📄 Relevé d'heures</div>
+  <div class="card no-print">
+    <div class="row2">
+      <div class="field"><label>Mois du relevé</label>
+        <select onchange="setReleveMois(this.value)">${dispo.map(m=>`<option value="${m}" ${m===ym?"selected":""}>${moisLong(m)}</option>`).join("")}</select></div>
+      <div class="field"><label>Mon nom</label><input value="${escH(nom)}" placeholder="Prénom Nom" onchange="setReleveNom(this.value)"></div>
+    </div>
+    <div class="field"><label>Employeur / service <span class="muted" style="font-weight:400">— facultatif</span></label>
+      <input value="${escH(emp)}" placeholder="Ex : Boulangerie Martin" onchange="setReleveEmployeur(this.value)"></div>
+    <button class="btn" onclick="imprimerReleve()">🖨️ Enregistrer en PDF / Imprimer</button>
+    <div class="muted" style="font-size:11.5px;margin-top:9px">Dans la fenêtre d'impression, choisis <b>« PDF » → « Enregistrer au format PDF »</b> (sur iPhone : bouton Partager). Seule la feuille ci-dessous sera imprimée.</div>
+  </div>
+  <div class="card">${feuille}</div>
+  <button class="btn ghost no-print" onclick="go('horaires')" style="margin-top:4px">← Retour aux horaires</button>`;
+}
 function viewHoraires(){
   const e=UI.horEdit||{}; const prevu=prevuJour(), contrat=contratHebdo();
   const list=(DB.horaires||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
@@ -1890,6 +1979,7 @@ function viewHoraires(){
     <div class="kpi"><div class="lbl">Ce mois</div><div class="val">${fmtH(monthTot)}</div></div>
     <div class="kpi"><div class="lbl">Compteur +/−</div><div class="val ${cum>=0?'pos':'neg'}">${cum>=0?'+':''}${fmtH(cum)}</div></div>
   </div>
+  <button class="btn ghost" style="margin-bottom:16px" onclick="ouvrirReleve()">📄 Relevé mensuel à imprimer (PDF) →</button>
   ${planningHTML}
   <div class="card"><h2>${editing?"✏️ Modifier la journée":"➕ Ajouter une journée"}</h2>
     <div class="field"><label>Date</label><input id="hDate" type="date" value="${e.date||todayISO()}"></div>
@@ -2059,6 +2149,7 @@ window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.es
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
 window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setConges=setConges;
+window.ouvrirReleve=ouvrirReleve;window.setReleveMois=setReleveMois;window.setReleveNom=setReleveNom;window.setReleveEmployeur=setReleveEmployeur;window.imprimerReleve=imprimerReleve;
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
