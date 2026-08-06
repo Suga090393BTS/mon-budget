@@ -573,7 +573,7 @@ function renderNav(){
     +`<button class="${UI.tab==='reglages'?'active':''}" onclick="go('reglages')" style="margin-top:auto"><span class="ic">⚙️</span>Réglages</button>`;
   document.getElementById("bottomnav").innerHTML=NAV.map(([k,l,i,s])=>`<button class="${UI.tab===k?'active':''}" onclick="go('${k}')"><span class="ic">${i}</span>${s}</button>`).join("");
 }
-function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
+function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; UI.serieOpen=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
   const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
@@ -968,9 +968,11 @@ function viewAvenir(){
       <span class="chip ${f.statut==='payé'?'paye':f.statut==='annulé'?'annule':late?'retard':'prevu'}">${late&&f.statut==='prévu'?'en retard':f.statut}</span>
       <div style="display:flex;gap:4px">
         ${f.statut==="prévu"?`<button class="del" title="Marquer payé" onclick="futurePay('${f.id}')">✅</button>
-          <button class="del" title="Modifier le montant" onclick="futureEdit('${f.id}')">✏️</button>
+          <button class="del" title="Modifier le montant de cette échéance" onclick="futureEdit('${f.id}')">✏️</button>
           <button class="del" title="Annuler" onclick="futureCancel('${f.id}')">🚫</button>`:""}
-        <button class="del" title="Supprimer" onclick="futureDelete('${f.id}')">🗑️</button></div></div>`;
+        ${isSerie(f)?`<button class="del" title="Agir sur toute la série" onclick="serieToggle('${f.id}')">🔁</button>`:""}
+        <button class="del" title="Supprimer cette échéance" onclick="futureDelete('${f.id}')">🗑️</button></div></div>
+      ${UI.serieOpen===f.id?seriePanelHTML(f):""}`;
   }).join(""):`<div class="empty">Aucun paiement prévu. Ajoute-en un ci-dessous 👇</div>`;
   const t=FNEW.type;
   return `<div class="pagehead">📅 Paiements à venir</div>
@@ -1052,6 +1054,62 @@ function futureEdit(id){ const f=DB.future.find(x=>x.id===id); if(!f)return;
 }
 function futureCancel(id){ const f=DB.future.find(x=>x.id===id); if(f){f.statut="annulé"; save(); render();} }
 function futureDelete(id){ if(!confirm("Supprimer ce paiement prévu ?"))return; DB.future=DB.future.filter(x=>x.id!==id); save(); render(); }
+
+/* ---------- Agir sur toute une série (un prélèvement qui revient, un abonnement ♾️) ---------- */
+function serieOf(f){ return DB.future.filter(x=>x.serieId&&x.serieId===f.serieId); }
+/* « celle-ci et toutes celles d'après » : les échéances encore prévues, à partir de cette date */
+function serieSuivantes(f){ return serieOf(f).filter(x=>x.statut==="prévu"&&(x.date||"")>=(f.date||"")); }
+function isSerie(f){ return !!(f.serieId&&f.freq&&f.freq!=="ponctuel"&&serieOf(f).length>1); }
+function serieToggle(id){ UI.serieOpen=(UI.serieOpen===id?null:id); render(); }
+function serieMontant(id){
+  const f=DB.future.find(x=>x.id===id); if(!f)return;
+  const cible=serieSuivantes(f); if(!cible.length){ toast("Aucune échéance à venir"); return; }
+  const v=prompt(`Nouveau montant (€) pour « ${f.nom} » — appliqué aux ${cible.length} échéances à venir :`, String(Math.abs(f.montant)).replace(".",","));
+  if(v===null)return;
+  const m=parseFloat(String(v).replace(",",".")); if(!m||m<=0){toast("Montant invalide");return;}
+  cible.forEach(x=>{ x.montant=(x.montant<0?-1:1)*Math.abs(m); });
+  UI.serieOpen=null; save(); render(); toast(cible.length+" échéance(s) à "+eur(Math.abs(m))+" ✅");
+}
+function serieDate(id){
+  const f=DB.future.find(x=>x.id===id); if(!f)return;
+  const cible=serieSuivantes(f); if(!cible.length){ toast("Aucune échéance à venir"); return; }
+  const v=prompt(`Nouveau jour du mois pour « ${f.nom} » (1 à 31) — décale les ${cible.length} échéances à venir :`, String(Number((f.date||"").slice(8,10))||1));
+  if(v===null)return;
+  const j=Math.max(1,Math.min(31,parseInt(v)||0)); if(!j){toast("Jour invalide");return;}
+  cible.forEach(x=>{ const p=(x.date||"").split("-"); if(p.length!==3)return;
+    const dim=new Date(+p[0],+p[1],0).getDate();          /* on ne sort pas du mois : 31 → 30 en avril */
+    x.date=p[0]+"-"+p[1]+"-"+String(Math.min(j,dim)).padStart(2,"0"); });
+  UI.serieOpen=null; save(); render(); toast("Échéances décalées au "+j+" ✅");
+}
+function serieStop(id){
+  const f=DB.future.find(x=>x.id===id); if(!f)return;
+  const cible=serieSuivantes(f); if(!cible.length){ toast("Aucune échéance à venir"); return; }
+  if(!confirm(`Supprimer les ${cible.length} échéances à venir de « ${f.nom} » ?\n\nCe qui est déjà payé est conservé.${f.sansFin?"\nLe renouvellement automatique ♾️ s'arrête.":""}`))return;
+  const ids=new Set(cible.map(x=>x.id));
+  DB.future=DB.future.filter(x=>!ids.has(x.id));
+  UI.serieOpen=null; save(); render(); toast(cible.length+" échéance(s) supprimée(s) 🗑️");
+}
+function serieTout(id){
+  const f=DB.future.find(x=>x.id===id); if(!f)return;
+  const tout=serieOf(f);
+  if(!confirm(`Supprimer TOUTE la série « ${f.nom} » (${tout.length} échéances, y compris celles déjà payées ou annulées) ?\n\nTes opérations déjà enregistrées ne sont pas touchées.`))return;
+  const sid=f.serieId;
+  DB.future=DB.future.filter(x=>x.serieId!==sid);
+  UI.serieOpen=null; save(); render(); toast("Série supprimée 🗑️");
+}
+function seriePanelHTML(f){
+  const n=serieSuivantes(f).length, tot=serieOf(f).length;
+  const b=(txt,fn,style)=>`<button class="btn ghost sm" style="width:100%;justify-content:flex-start;text-align:left;margin-top:7px;${style||''}" onclick="${fn}('${f.id}')">${txt}</button>`;
+  return `<div style="margin:-6px 0 12px;padding:12px 14px;border:1px solid var(--accent);border-radius:14px;background:var(--surface-2)">
+    <div style="font-weight:800;font-size:13.5px">🔁 Toute la série « ${f.nom} »</div>
+    <div class="muted" style="font-size:11.5px;margin-top:3px">${FREQ_LBL[f.freq]||""}${f.sansFin?" ♾️ sans fin":""} · <b>${n}</b> échéance(s) à venir sur ${tot} au total. Les modifications s'appliquent à celle-ci <b>et à toutes les suivantes</b>, d'un seul coup.</div>
+    ${b("✏️ Changer le montant des "+n+" échéances à venir","serieMontant")}
+    ${b("📅 Décaler le jour de prélèvement","serieDate")}
+    ${b("🗑️ Supprimer les "+n+" échéances à venir"+(f.sansFin?" (arrête le ♾️)":""),"serieStop","color:var(--neg)")}
+    ${b("🧹 Tout supprimer, y compris l'historique","serieTout","color:var(--neg)")}
+    <button class="btn ghost sm" style="width:100%;margin-top:9px" onclick="serieToggle('${f.id}')">Fermer</button>
+  </div>`;
+}
 
 /* ===================== COMPTEUR DE CAISSE ===================== */
 const DENOMS=[{v:500,l:"500 €"},{v:200,l:"200 €"},{v:100,l:"100 €"},{v:50,l:"50 €"},{v:20,l:"20 €"},{v:10,l:"10 €"},{v:5,l:"5 €"},{v:2,l:"2 €"},{v:1,l:"1 €"},{v:0.5,l:"50 c"},{v:0.2,l:"20 c"},{v:0.1,l:"10 c"},{v:0.05,l:"5 c"},{v:0.02,l:"2 c"},{v:0.01,l:"1 c"}];
@@ -1994,7 +2052,8 @@ let toastT;
 function toast(msg){const el=document.getElementById("toast");el.textContent=msg;el.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove("show"),2200);}
 window.go=go;window.setType=setType;window.onCatChange=onCatChange;window.applySugg=applySugg;window.saveTx=saveTx;
 window.renderTxList=renderTxList;window.editTx=editTx;window.delTx=delTx;window.addFuture=addFuture;window.futurePay=futurePay;
-window.futureCancel=futureCancel;window.futureDelete=futureDelete;window.futureEdit=futureEdit;window.setAcc=setAcc;window.calibAcc=calibAcc;window.addAcct=addAcct;window.setCat=setCat;
+window.futureCancel=futureCancel;window.futureDelete=futureDelete;window.futureEdit=futureEdit;
+window.serieToggle=serieToggle;window.serieMontant=serieMontant;window.serieDate=serieDate;window.serieStop=serieStop;window.serieTout=serieTout;window.setAcc=setAcc;window.calibAcc=calibAcc;window.addAcct=addAcct;window.setCat=setCat;
 window.openCompteur=openCompteur;window.recalcCaisse=recalcCaisse;window.saveCaisse=saveCaisse;window.nextRecount=nextRecount;
 window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.espToggle=espToggle;window.onCompteChange=onCompteChange;
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
