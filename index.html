@@ -1768,9 +1768,10 @@ function weekKey(iso){ const p=iso.split("-").map(Number); const d=new Date(p[0]
   return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function prevuJour(){ return DB.heuresPrevuesJour!=null?DB.heuresPrevuesJour:7; }
 function contratHebdo(){ return DB.contratHebdo!=null?DB.contratHebdo:42; }
-/* heures contractuelles dues sur un mois donné (YYYY-MM) = 42h/sem × (nb jours du mois / 7) */
+/* heures contractuelles dues chaque mois = mensualisation : 42h/sem × 52 semaines ÷ 12
+   (c'est le calcul de la fiche de paie : 35h → 151,67h, 42h → 182h, identique tous les mois) */
 function daysInMonth(ym){ const p=ym.split("-").map(Number); return new Date(p[0],p[1],0).getDate(); }
-function prevuMois(ym){ return contratHebdo()*daysInMonth(ym)/7; }
+function prevuMois(){ return contratHebdo()*52/12; }
 const MOISNOM=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 /* couleur d'une journée selon le nb d'heures (heatmap) */
 function hColor(h){ if(h<=0)return "transparent"; if(h<4)return "var(--info)"; if(h<7)return "#0ea5e9"; if(h<9)return "var(--pos)"; if(h<11)return "var(--warn)"; return "var(--neg)"; }
@@ -1818,7 +1819,7 @@ function viewReleve(){
       <td style="${TD};text-align:center">${rempl?"remplacement":""}${rempl&&notes?" · ":""}${notes||(rempl?"":"—")}</td>
       <td style="${TD};text-align:right;font-weight:700">${fmtH(h)}</td></tr>`;
   }
-  const du=prevuMois(ym), ecart=tot-du;
+  const du=prevuMois(), ecart=tot-du;
   const nom=DB.nomSalarie||"", emp=DB.employeur||"";
   const feuille=`<div class="releve" style="background:#fff;color:#000;padding:4px 2px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #000;padding-bottom:10px">
@@ -1834,7 +1835,7 @@ function viewReleve(){
       <tfoot><tr style="background:#eee"><td style="${TD};font-weight:800" colspan="4">Total du mois — ${jours} jour${jours>1?"s":""} travaillé${jours>1?"s":""}${vacJ?` · ${vacJ} jour${vacJ>1?"s":""} de congés`:""}</td>
         <td style="${TD};text-align:right;font-weight:800;font-size:14px">${fmtH(tot)}</td></tr></tfoot></table>
       <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:14px">
-        <tr><td style="${TD}">Heures dues au contrat (${contratHebdo()}h/sem × ${nbj} jours ÷ 7)</td><td style="${TD};text-align:right">${fmtH(du)}</td></tr>
+        <tr><td style="${TD}">Heures dues au contrat (${contratHebdo()}h/sem × 52 ÷ 12)</td><td style="${TD};text-align:right">${fmtH(du)}</td></tr>
         <tr><td style="${TD}">Heures effectuées</td><td style="${TD};text-align:right;font-weight:700">${fmtH(tot)}</td></tr>
         <tr><td style="${TD};font-weight:800">Écart</td><td style="${TD};text-align:right;font-weight:800">${ecart>=0?"+":""}${fmtH(ecart)}</td></tr>
         ${remplH>0?`<tr><td style="${TD}">Dont journées de remplacement</td><td style="${TD};text-align:right">${fmtH(remplH)}</td></tr>`:""}
@@ -1901,7 +1902,7 @@ function viewHoraires(){
   /* ---------- TABLEAU RÉCAP PAR MOIS (vs contrat 42h/sem) ---------- */
   const months={}; list.forEach(x=>{const m=(x.date||"").slice(0,7); if(m)months[m]=(months[m]||0)+hoursOf(x);});
   const mkeys=Object.keys(months).sort((a,b)=>b.localeCompare(a));
-  const moisRows=mkeys.map(m=>{const tot=months[m],du=prevuMois(m),diff=tot-du,mp=m.split("-");
+  const moisRows=mkeys.map(m=>{const tot=months[m],du=prevuMois(),diff=tot-du,mp=m.split("-");
     return `<tr style="border-bottom:1px solid var(--line)">
       <td style="padding:9px 4px;text-transform:capitalize;font-weight:700">${MOISNOM[+mp[1]-1]} ${mp[0]}</td>
       <td style="padding:9px 4px;text-align:right;font-weight:800">${fmtH(tot)}</td>
@@ -1914,7 +1915,7 @@ function viewHoraires(){
       <th style="text-align:right;padding:6px 4px;font-size:11px;color:var(--muted)">Dû</th>
       <th style="text-align:right;padding:6px 4px;font-size:11px;color:var(--muted)">Écart</th></tr>
       ${moisRows}</table>
-      <div class="muted" style="font-size:11.5px;margin-top:9px">« Dû » = ${contrat}h/sem × (nb de jours du mois ÷ 7). Modifiable ci-dessous.</div>`
+      <div class="muted" style="font-size:11.5px;margin-top:9px">« Dû » = ${contrat}h/sem × 52 ÷ 12 = <b>${fmtH(prevuMois())}</b> par mois — le même calcul que ta fiche de paie. Contrat modifiable ci-dessous.</div>`
       :`<div class="empty">Saisis des journées pour voir ton récap mensuel.</div>`}
   </div>`;
 
