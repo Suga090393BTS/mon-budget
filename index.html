@@ -289,6 +289,7 @@ function ensureDefaults(){
     DB.paye.lines=DB.paye.lines.filter(l=>l.acct);
   }
   if(DB.contratHebdo==null) DB.contratHebdo=42;
+  if(!DB.periodes||typeof DB.periodes!=="object") DB.periodes={};   /* période de paie retenue, par mois : {"2026-07":{du,au}} */
   DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
   /* migration : ancienne double-saisie €/an → tout ramené en mensuel (÷12) dans c.budget */
   DB.categories.forEach(c=>{ if(c.budgetAn!=null){ c.budget=Math.round(((+c.budget||0)+(+c.budgetAn||0)/12)*100)/100; delete c.budgetAn; } });
@@ -1790,40 +1791,96 @@ function setReleveNom(v){ DB.nomSalarie=(v||"").trim(); save(); }
 function setReleveEmployeur(v){ DB.employeur=(v||"").trim(); save(); }
 function imprimerReleve(){ window.print(); }
 function moisLong(ym){ const p=ym.split("-"); return MOISNOM[+p[1]-1]+" "+p[0]; }
+function addDays(iso,n){ const p=iso.split("-").map(Number); const d=new Date(p[0],p[1]-1,p[2]+n);
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function moisPrecedent(ym){ const p=ym.split("-").map(Number); const d=new Date(p[0],p[1]-2,1);
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
+/* Période de paie : par défaut, les semaines complètes qui couvrent le mois —
+   du lundi de la semaine du 1er au dimanche de la semaine du dernier jour.
+   Si le mois précédent a sa propre période, on enchaîne le lendemain pour ne rien compter deux fois. */
+function periodeDefaut(ym){
+  const dernier=ym+"-"+String(daysInMonth(ym)).padStart(2,"0");
+  const au=addDays(weekKey(dernier),6);
+  const prev=(DB.periodes||{})[moisPrecedent(ym)];
+  return { du:(prev&&prev.au)?addDays(prev.au,1):weekKey(ym+"-01"), au };
+}
+function periodeDe(ym){ const st=(DB.periodes||{})[ym];
+  return (st&&st.du&&st.au)?{du:st.du,au:st.au}:periodeDefaut(ym); }
+function setPeriode(ym,champ,val){ if(!val)return; DB.periodes=DB.periodes||{};
+  const p=Object.assign({},periodeDe(ym)); p[champ]=val;
+  if(p.du>p.au){ toast("La date de début doit précéder la date de fin"); return; }
+  DB.periodes[ym]=p; save(); render(); }
+function resetPeriode(ym){ if(DB.periodes) delete DB.periodes[ym]; save(); render(); toast("Période remise par défaut"); }
+function setReleveMode(m){ UI.releveMode=m; render(); }
+/* les semaines (lundi → dimanche) qui touchent un intervalle, avec le total de la semaine ENTIÈRE
+   — y compris ses journées hors intervalle, puisque la paie se compte par semaine complète */
+function semainesDe(du,au){
+  const out=[]; let lundi=weekKey(du);
+  while(lundi<=au){
+    const dimanche=addDays(lundi,6);
+    const js=(DB.horaires||[]).filter(x=>x.date>=lundi&&x.date<=dimanche);
+    out.push({ lundi, dimanche,
+      tot: js.reduce((s,x)=>s+hoursOf(x),0),
+      dedans: js.filter(x=>x.date>=du&&x.date<=au).reduce((s,x)=>s+hoursOf(x),0),
+      cheval: lundi<du||dimanche>au });
+    lundi=addDays(lundi,7);
+  }
+  return out;
+}
 function viewReleve(){
-  const ym=releveYM(), nbj=daysInMonth(ym);
-  const ents=(DB.horaires||[]).filter(x=>(x.date||"").slice(0,7)===ym);
-  const byDate={}; ents.forEach(x=>{(byDate[x.date]=byDate[x.date]||[]).push(x);});
+  const ym=releveYM();
+  const mode=UI.releveMode||"periode";                 /* « periode » = semaines complètes, comme la paie */
+  const per=periodeDe(ym);
+  const rng = mode==="periode" ? per : {du:ym+"-01", au:ym+"-"+String(daysInMonth(ym)).padStart(2,"0")};
+  const byDate={}; (DB.horaires||[]).forEach(x=>{(byDate[x.date]=byDate[x.date]||[]).push(x);});
   /* la liste des mois proposés : ceux où j'ai saisi des heures, plus le mois en cours */
   const dispo=[...new Set((DB.horaires||[]).map(x=>(x.date||"").slice(0,7)).filter(Boolean).concat([todayISO().slice(0,7)]))].sort((a,b)=>b.localeCompare(a));
 
   const BRD="1px solid #bbb", TD=`padding:6px 7px;border:${BRD};color:#000`;
-  let tot=0, jours=0, remplH=0, vacJ=0, rows="";
-  for(let d=1; d<=nbj; d++){
-    const iso=ym+"-"+String(d).padStart(2,"0");
-    const es=(byDate[iso]||[]).slice().sort((a,b)=>(a.debut||"").localeCompare(b.debut||""));
-    const vac=vacOf(iso);
-    if(!es.length&&!vac) continue;
-    if(!es.length){ vacJ++;
+  const contrat=contratHebdo();
+  let tot=0, jours=0, remplH=0, vacJ=0, rows="", hsCompletes=0, chevaux=[];
+  /* on parcourt la période semaine par semaine (lundi → dimanche), comme la comptable */
+  for(const s of semainesDe(rng.du,rng.au)){
+    for(let k=0;k<7;k++){
+      const iso=addDays(s.lundi,k); if(iso<rng.du||iso>rng.au) continue;
+      const es=(byDate[iso]||[]).slice().sort((a,b)=>(a.debut||"").localeCompare(b.debut||""));
+      const vac=vacOf(iso);
+      if(!es.length&&!vac) continue;
+      if(!es.length){ vacJ++;
+        rows+=`<tr><td style="${TD};text-transform:capitalize">${jourNom(iso)} ${frDate(iso)}</td>
+          <td style="${TD};text-align:center" colspan="3">🏖️ congés${vac.note?" — "+vac.note:""}</td>
+          <td style="${TD};text-align:right">—</td></tr>`;
+        continue; }
+      const h=es.reduce((a,x)=>a+hoursOf(x),0); tot+=h; jours++;
+      const rempl=es.some(x=>x.remplacement); if(rempl) remplH+=h;
+      const pause=es.reduce((a,x)=>a+(parseInt(x.pause)||0),0);
+      const notes=es.map(x=>x.note).filter(Boolean).join(" · ");
       rows+=`<tr><td style="${TD};text-transform:capitalize">${jourNom(iso)} ${frDate(iso)}</td>
-        <td style="${TD};text-align:center" colspan="3">🏖️ congés${vac.note?" — "+vac.note:""}</td>
-        <td style="${TD};text-align:right">—</td></tr>`;
-      continue; }
-    const h=es.reduce((s,x)=>s+hoursOf(x),0); tot+=h; jours++;
-    const rempl=es.some(x=>x.remplacement); if(rempl) remplH+=h;
-    const pause=es.reduce((s,x)=>s+(parseInt(x.pause)||0),0);
-    const notes=es.map(x=>x.note).filter(Boolean).join(" · ");
-    rows+=`<tr><td style="${TD};text-transform:capitalize">${jourNom(iso)} ${frDate(iso)}</td>
-      <td style="${TD};text-align:center">${es.map(x=>x.debut+" – "+x.fin).join("<br>")}</td>
-      <td style="${TD};text-align:center">${pause?pause+" min":"—"}</td>
-      <td style="${TD};text-align:center">${rempl?"remplacement":""}${rempl&&notes?" · ":""}${notes||(rempl?"":"—")}</td>
-      <td style="${TD};text-align:right;font-weight:700">${fmtH(h)}</td></tr>`;
+        <td style="${TD};text-align:center">${es.map(x=>x.debut+" – "+x.fin).join("<br>")}</td>
+        <td style="${TD};text-align:center">${pause?pause+" min":"—"}</td>
+        <td style="${TD};text-align:center">${rempl?"remplacement":""}${rempl&&notes?" · ":""}${notes||(rempl?"":"—")}</td>
+        <td style="${TD};text-align:right;font-weight:700">${fmtH(h)}</td></tr>`;
+    }
+    if(!s.tot) continue;
+    const sup=Math.max(0,s.tot-contrat);
+    if(s.cheval) chevaux.push(s); else hsCompletes+=sup;
+    const etat = sup>0 ? `<b>+${fmtH(sup)} au-delà de ${contrat}h</b>`
+      : s.cheval ? `semaine à cheval sur la période`
+      : (Math.abs(s.tot-contrat)<0.005 ? `pile ${contrat}h — rien en plus` : `${fmtH(contrat-s.tot)} sous les ${contrat}h`);
+    const hors=Math.round((s.tot-s.dedans)*100)/100;
+    rows+=`<tr style="background:#f4f4f4"><td style="${TD}" colspan="4">
+        <b>Semaine du ${frDate(s.lundi)} au ${frDate(s.dimanche)}</b> — ${etat}
+        ${s.cheval?`<br><span style="font-size:10.5px;color:#555">${fmtH(s.dedans)} dans la période · ${hors>0?fmtH(hors)+" en dehors":"aucune heure saisie en dehors — à vérifier"}</span>`:""}</td>
+      <td style="${TD};text-align:right;font-weight:800">${fmtH(s.tot)}</td></tr>`;
   }
   const du=prevuMois(), ecart=tot-du;
+  const nbSem=Math.round((new Date(rng.au.split("-")[0],+rng.au.split("-")[1]-1,+rng.au.split("-")[2])
+    - new Date(rng.du.split("-")[0],+rng.du.split("-")[1]-1,+rng.du.split("-")[2]))/864e5+1)/7;
   const nom=DB.nomSalarie||"", emp=DB.employeur||"";
   const feuille=`<div class="releve" style="background:#fff;color:#000;padding:4px 2px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #000;padding-bottom:10px">
       <div><div style="font-size:19px;font-weight:800">Relevé d'heures — ${moisLong(ym)}</div>
+        <div style="font-size:12px;margin-top:3px"><b>Période du ${frDate(rng.du)} au ${frDate(rng.au)}</b> <span style="color:#555">— ${mode==="periode"?`${nbSem} semaine${nbSem>1?"s":""} complète${nbSem>1?"s":""}`:"mois civil"}</span></div>
         <div style="font-size:12.5px;margin-top:4px">${nom?`<b>${escH(nom)}</b>`:`<i style="color:#777">(indique ton nom ci-dessous)</i>`}${emp?" — "+escH(emp):""}</div></div>
       <div style="text-align:right;font-size:11.5px;color:#444">Contrat : ${contratHebdo()}h / semaine<br>Édité le ${frDate(todayISO())}</div>
     </div>
@@ -1832,28 +1889,49 @@ function viewReleve(){
         <th style="${TD};text-align:left">Jour</th><th style="${TD}">Horaires</th>
         <th style="${TD}">Coupure</th><th style="${TD}">Observation</th><th style="${TD};text-align:right">Heures</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr style="background:#eee"><td style="${TD};font-weight:800" colspan="4">Total du mois — ${jours} jour${jours>1?"s":""} travaillé${jours>1?"s":""}${vacJ?` · ${vacJ} jour${vacJ>1?"s":""} de congés`:""}</td>
+      <tfoot><tr style="background:#eee"><td style="${TD};font-weight:800" colspan="4">Total de la période — ${jours} jour${jours>1?"s":""} travaillé${jours>1?"s":""}${vacJ?` · ${vacJ} jour${vacJ>1?"s":""} de congés`:""}</td>
         <td style="${TD};text-align:right;font-weight:800;font-size:14px">${fmtH(tot)}</td></tr></tfoot></table>
       <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:14px">
-        <tr><td style="${TD}">Heures dues au contrat (${contratHebdo()}h/sem × 52 ÷ 12)</td><td style="${TD};text-align:right">${fmtH(du)}</td></tr>
-        <tr><td style="${TD}">Heures effectuées</td><td style="${TD};text-align:right;font-weight:700">${fmtH(tot)}</td></tr>
-        <tr><td style="${TD};font-weight:800">Écart</td><td style="${TD};text-align:right;font-weight:800">${ecart>=0?"+":""}${fmtH(ecart)}</td></tr>
+        <tr><td style="${TD}">Heures effectuées sur la période</td><td style="${TD};text-align:right;font-weight:700">${fmtH(tot)}</td></tr>
+        ${mode==="periode"&&nbSem===Math.round(nbSem)
+          ? `<tr><td style="${TD}">Heures dues sur la période (${contrat}h × ${nbSem} semaine${nbSem>1?"s":""})</td><td style="${TD};text-align:right">${fmtH(contrat*nbSem)}</td></tr>
+             <tr><td style="${TD}">Écart sur la période</td><td style="${TD};text-align:right">${tot-contrat*nbSem>=0?"+":""}${fmtH(tot-contrat*nbSem)}</td></tr>`
+          : `<tr><td style="${TD}">Heures mensualisées au contrat (${contrat}h/sem × 52 ÷ 12)</td><td style="${TD};text-align:right">${fmtH(du)}</td></tr>
+             <tr><td style="${TD}">Écart <span style="font-size:10.5px;color:#555">(indicatif — la mensualisation est une moyenne annuelle)</span></td>
+               <td style="${TD};text-align:right">${ecart>=0?"+":""}${fmtH(ecart)}</td></tr>`}
+        <tr style="background:#f4f4f4"><td style="${TD};font-weight:800">Heures au-delà de ${contrat}h par semaine <span style="font-size:10.5px;font-weight:400;color:#555">(semaines complètes)</span></td>
+          <td style="${TD};text-align:right;font-weight:800">${hsCompletes>0?"+":""}${fmtH(hsCompletes)}</td></tr>
         ${remplH>0?`<tr><td style="${TD}">Dont journées de remplacement</td><td style="${TD};text-align:right">${fmtH(remplH)}</td></tr>`:""}
       </table>
+      ${chevaux.length?`<div style="font-size:10.5px;color:#555;margin-top:7px">Semaine${chevaux.length>1?"s":""} à cheval sur la période : ${chevaux.map(s=>`${frDate(s.lundi)} → ${frDate(s.dimanche)} (${fmtH(s.tot)}${s.tot>contrat?`, soit +${fmtH(s.tot-contrat)}`:""})`).join(" · ")} — non ${chevaux.length>1?"comptées":"comptée"} dans la ligne ci-dessus. Règle la période sur des semaines entières pour les faire disparaître.</div>`:""}
       <div style="display:flex;gap:26px;margin-top:34px;font-size:11.5px;color:#000">
         <div style="flex:1">Signature du salarié<div style="border-bottom:1px solid #000;height:52px"></div></div>
         <div style="flex:1">Signature du responsable<div style="border-bottom:1px solid #000;height:52px"></div></div>
       </div>`
-    :`<div style="padding:26px 4px;color:#777;font-size:13px">Aucune heure saisie sur ${moisLong(ym)}.</div>`}
+    :`<div style="padding:26px 4px;color:#777;font-size:13px">Aucune heure saisie du ${frDate(rng.du)} au ${frDate(rng.au)}.</div>`}
   </div>`;
 
+  const perso=!!(DB.periodes||{})[ym];
   return `<div class="pagehead no-print">📄 Relevé d'heures</div>
   <div class="card no-print">
     <div class="row2">
-      <div class="field"><label>Mois du relevé</label>
+      <div class="field"><label>Mois de paie</label>
         <select onchange="setReleveMois(this.value)">${dispo.map(m=>`<option value="${m}" ${m===ym?"selected":""}>${moisLong(m)}</option>`).join("")}</select></div>
       <div class="field"><label>Mon nom</label><input value="${escH(nom)}" placeholder="Prénom Nom" onchange="setReleveNom(this.value)"></div>
     </div>
+    <div class="field"><label>Le relevé compte…</label>
+      <div class="seg">
+        <button class="${mode==='periode'?'on-tr':''}" onclick="setReleveMode('periode')">🗓️ Semaines complètes</button>
+        <button class="${mode==='mois'?'on-tr':''}" onclick="setReleveMode('mois')">📅 Mois civil</button>
+      </div></div>
+    ${mode==="periode"?`<div class="row2">
+      <div class="field"><label>Période du (un lundi)</label><input type="date" value="${rng.du}" onchange="setPeriode('${ym}','du',this.value)"></div>
+      <div class="field"><label>au (un dimanche)</label><input type="date" value="${rng.au}" onchange="setPeriode('${ym}','au',this.value)"></div></div>
+      <div class="muted" style="font-size:11.5px;margin:-4px 0 12px">
+        ${nbSem===Math.round(nbSem)?`<b>${nbSem} semaine${nbSem>1?"s":""} complète${nbSem>1?"s":""}</b> — c'est ce que compte ta comptable.`
+          :`⚠️ <b>${(nbSem*7).toFixed(0)} jours</b> : ça ne tombe pas sur des semaines entières. Cale le début sur un lundi et la fin sur un dimanche.`}
+        ${perso?` <button class="btn ghost sm" style="display:inline;width:auto;padding:2px 8px" onclick="resetPeriode('${ym}')">remettre par défaut</button>`:" Règle-la une fois d'après ta fiche de paie : le mois suivant enchaînera tout seul le lendemain."}
+      </div>`:""}
     <div class="field"><label>Employeur / service <span class="muted" style="font-weight:400">— facultatif</span></label>
       <input value="${escH(emp)}" placeholder="Ex : Boulangerie Martin" onchange="setReleveEmployeur(this.value)"></div>
     <button class="btn" onclick="imprimerReleve()">🖨️ Enregistrer en PDF / Imprimer</button>
@@ -2150,7 +2228,7 @@ window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.es
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
 window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setConges=setConges;
-window.ouvrirReleve=ouvrirReleve;window.setReleveMois=setReleveMois;window.setReleveNom=setReleveNom;window.setReleveEmployeur=setReleveEmployeur;window.imprimerReleve=imprimerReleve;
+window.ouvrirReleve=ouvrirReleve;window.setReleveMois=setReleveMois;window.setReleveMode=setReleveMode;window.setPeriode=setPeriode;window.resetPeriode=resetPeriode;window.setReleveNom=setReleveNom;window.setReleveEmployeur=setReleveEmployeur;window.imprimerReleve=imprimerReleve;
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
