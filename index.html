@@ -980,7 +980,7 @@ function viewAvenir(){
         ${f.statut==="prévu"?`<button class="del" title="Marquer payé" onclick="futurePay('${f.id}')">✅</button>
           <button class="del" title="Modifier le montant de cette échéance" onclick="futureEdit('${f.id}')">✏️</button>
           <button class="del" title="Annuler" onclick="futureCancel('${f.id}')">🚫</button>`:""}
-        ${isSerie(f)?`<button class="del" title="Agir sur toute la série" onclick="serieToggle('${f.id}')">🔁</button>`:""}
+        ${isSerie(f)?`<button class="del" title="Modifier ou supprimer TOUTES les échéances de « ${escH(f.nom)} » d'un coup" style="background:var(--accent-soft);border-color:var(--accent)" onclick="serieToggle('${f.id}')">🔁</button>`:""}
         <button class="del" title="Supprimer cette échéance" onclick="futureDelete('${f.id}')">🗑️</button></div></div>
       ${UI.serieOpen===f.id?seriePanelHTML(f):""}`;
   }).join(""):`<div class="empty">Aucun paiement prévu. Ajoute-en un ci-dessous 👇</div>`;
@@ -1014,7 +1014,9 @@ function viewAvenir(){
     </div>
     <div class="muted" style="font-size:11.5px;margin:-2px 0 12px">💡 <b>Paiement en plusieurs fois</b> : choisis « Mensuel », mets le montant d'<b>une</b> échéance et le nombre de fois (ex : 3). <b>Abonnement annuel sur 2 ans</b> : « Annuel », 2 échéances.</div>
     <button class="btn" onclick="addFuture()">✅ Ajouter</button></div>
-  <div class="card"><h2>Mes paiements prévus</h2><div>${items}</div></div>`;
+  <div class="card"><h2>Mes paiements prévus</h2>
+    ${DB.future.some(f=>isSerie(f))?`<div class="muted" style="font-size:11.5px;margin-bottom:10px">🔁 Un prélèvement change de montant ? Clique le bouton <b>🔁</b> de n'importe laquelle de ses échéances : tu modifies ou supprimes <b>toutes les suivantes d'un seul coup</b>.</div>`:""}
+    <div>${items}</div></div>`;
 }
 function addFuture(){
   const nom=document.getElementById("fuNom").value.trim();
@@ -1066,10 +1068,16 @@ function futureCancel(id){ const f=DB.future.find(x=>x.id===id); if(f){f.statut=
 function futureDelete(id){ if(!confirm("Supprimer ce paiement prévu ?"))return; DB.future=DB.future.filter(x=>x.id!==id); save(); render(); }
 
 /* ---------- Agir sur toute une série (un prélèvement qui revient, un abonnement ♾️) ---------- */
-function serieOf(f){ return DB.future.filter(x=>x.serieId&&x.serieId===f.serieId); }
+/* Toutes les échéances du même prélèvement : soit la série créée d'un coup (serieId),
+   soit — si elles ont été saisies une par une — toutes celles qui portent le MÊME NOM. */
+function serieOf(f){
+  if(f.serieId){ const l=DB.future.filter(x=>x.serieId===f.serieId); if(l.length>1) return l; }
+  const n=(f.nom||"").trim().toLowerCase(); if(!n) return [f];
+  return DB.future.filter(x=>(x.nom||"").trim().toLowerCase()===n);
+}
 /* « celle-ci et toutes celles d'après » : les échéances encore prévues, à partir de cette date */
 function serieSuivantes(f){ return serieOf(f).filter(x=>x.statut==="prévu"&&(x.date||"")>=(f.date||"")); }
-function isSerie(f){ return !!(f.serieId&&f.freq&&f.freq!=="ponctuel"&&serieOf(f).length>1); }
+function isSerie(f){ return serieOf(f).length>1; }
 function serieToggle(id){ UI.serieOpen=(UI.serieOpen===id?null:id); render(); }
 function serieMontant(id){
   const f=DB.future.find(x=>x.id===id); if(!f)return;
@@ -1103,8 +1111,8 @@ function serieTout(id){
   const f=DB.future.find(x=>x.id===id); if(!f)return;
   const tout=serieOf(f);
   if(!confirm(`Supprimer TOUTE la série « ${f.nom} » (${tout.length} échéances, y compris celles déjà payées ou annulées) ?\n\nTes opérations déjà enregistrées ne sont pas touchées.`))return;
-  const sid=f.serieId;
-  DB.future=DB.future.filter(x=>x.serieId!==sid);
+  const ids=new Set(tout.map(x=>x.id));
+  DB.future=DB.future.filter(x=>!ids.has(x.id));
   UI.serieOpen=null; save(); render(); toast("Série supprimée 🗑️");
 }
 function seriePanelHTML(f){
@@ -1112,7 +1120,7 @@ function seriePanelHTML(f){
   const b=(txt,fn,style)=>`<button class="btn ghost sm" style="width:100%;justify-content:flex-start;text-align:left;margin-top:7px;${style||''}" onclick="${fn}('${f.id}')">${txt}</button>`;
   return `<div style="margin:-6px 0 12px;padding:12px 14px;border:1px solid var(--accent);border-radius:14px;background:var(--surface-2)">
     <div style="font-weight:800;font-size:13.5px">🔁 Toute la série « ${f.nom} »</div>
-    <div class="muted" style="font-size:11.5px;margin-top:3px">${FREQ_LBL[f.freq]||""}${f.sansFin?" ♾️ sans fin":""} · <b>${n}</b> échéance(s) à venir sur ${tot} au total. Les modifications s'appliquent à celle-ci <b>et à toutes les suivantes</b>, d'un seul coup.</div>
+    <div class="muted" style="font-size:11.5px;margin-top:3px">${FREQ_LBL[f.freq]?FREQ_LBL[f.freq]+(f.sansFin?" ♾️ sans fin":"")+" · ":""}<b>${n}</b> échéance(s) à venir sur ${tot} au total${f.serieId&&DB.future.filter(x=>x.serieId===f.serieId).length>1?"":`, regroupées par leur nom « ${escH(f.nom)} »`}. Les modifications s'appliquent à celle-ci <b>et à toutes les suivantes</b>, d'un seul coup.</div>
     ${b("✏️ Changer le montant des "+n+" échéances à venir","serieMontant")}
     ${b("📅 Décaler le jour de prélèvement","serieDate")}
     ${b("🗑️ Supprimer les "+n+" échéances à venir"+(f.sansFin?" (arrête le ♾️)":""),"serieStop","color:var(--neg)")}
@@ -1795,14 +1803,17 @@ function addDays(iso,n){ const p=iso.split("-").map(Number); const d=new Date(p[
   return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function moisPrecedent(ym){ const p=ym.split("-").map(Number); const d=new Date(p[0],p[1]-2,1);
   return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
-/* Période de paie : par défaut, les semaines complètes qui couvrent le mois —
-   du lundi de la semaine du 1er au dimanche de la semaine du dernier jour.
-   Si le mois précédent a sa propre période, on enchaîne le lendemain pour ne rien compter deux fois. */
+/* Période de paie par défaut : des semaines entières (lundi → dimanche).
+   Une semaine est rattachée au mois où tombe la majorité de ses jours — autrement dit
+   le mois de son jeudi. Résultat : aucun trou, aucune semaine comptée deux fois. */
+function moisDeSemaine(lundi){ return addDays(lundi,3).slice(0,7); }   /* le jeudi décide */
 function periodeDefaut(ym){
-  const dernier=ym+"-"+String(daysInMonth(ym)).padStart(2,"0");
-  const au=addDays(weekKey(dernier),6);
+  let l=weekKey(ym+"-01");
+  while(moisDeSemaine(l)<ym) l=addDays(l,7);                 /* 1re semaine qui appartient au mois */
+  let dernier=l;
+  while(moisDeSemaine(addDays(dernier,7))===ym) dernier=addDays(dernier,7);
   const prev=(DB.periodes||{})[moisPrecedent(ym)];
-  return { du:(prev&&prev.au)?addDays(prev.au,1):weekKey(ym+"-01"), au };
+  return { du:(prev&&prev.au)?addDays(prev.au,1):l, au:addDays(dernier,6) };
 }
 function periodeDe(ym){ const st=(DB.periodes||{})[ym];
   return (st&&st.du&&st.au)?{du:st.du,au:st.au}:periodeDefaut(ym); }
