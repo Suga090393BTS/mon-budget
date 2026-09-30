@@ -24,6 +24,7 @@ body{margin:0;background:var(--bg);color:var(--text);
 .appli{width:100%;max-width:430px}
 h1{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
 h1 .petit{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--muted)}
+h1 .ver{font-size:11px;font-weight:700;color:var(--muted)}
 .carte{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:13px}
 
 /* ---------- écran ---------- */
@@ -85,7 +86,8 @@ h1 .petit{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--muted)}
 <body>
 <div class="appli">
 
-  <h1 class="sansimpression">🧮 Calculatrice <span class="petit" id="compteur"></span></h1>
+  <!-- VERSION : le même numéro que dans index.html, à augmenter ensemble à chaque publication -->
+  <h1 class="sansimpression">🧮 Calculatrice <span class="ver" title="Version — change à chaque publication">v1 · 30/09</span> <span class="petit" id="compteur"></span></h1>
 
   <div class="carte sansimpression">
     <div class="ecran">

@@ -1,10 +1,11 @@
 /* Service worker — Mon budget (PWA)
    Stratégie : "réseau d'abord" pour la page (toujours la dernière version quand il y a du réseau),
    bascule sur le cache hors-ligne. Les autres fichiers de l'app sont mis en cache. */
-const CACHE = "monbudget-v1";
+const CACHE = "monbudget-v2";   /* v2 : ajout de la calculatrice */
 const ASSETS = [
   "./",
   "./index.html",
+  "./calculatrice.html",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",
