@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Calculatrice">
+<meta name="theme-color" content="#0f766e">
+<title>🧮 Calculatrice — ticket</title>
+<style>
+:root{
+  --bg:#f1f5f9; --surface:#fff; --surface-2:#f1f5f9; --text:#0f172a; --muted:#64748b;
+  --line:#e2e8f0; --accent:#0f766e; --accent-soft:#ccfbf1; --neg:#dc2626; --radius:18px;
+  --shadow:0 10px 30px rgba(15,23,42,.08);
+}
+@media(prefers-color-scheme:dark){
+  :root{ --bg:#0b1220; --surface:#131c2e; --surface-2:#1b2740; --text:#e8eef9; --muted:#94a3b8;
+    --line:#26334d; --accent:#2dd4bf; --accent-soft:#134e4a; --shadow:0 10px 30px rgba(0,0,0,.4); }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  padding:14px;display:flex;justify-content:center}
+.appli{width:100%;max-width:430px}
+h1{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+h1 .petit{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--muted)}
+.carte{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:13px}
+
+/* ---------- écran ---------- */
+.ecran{background:var(--surface-2);border-radius:14px;padding:13px 15px;text-align:right;min-height:88px;
+  display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden}
+.calcul{font-size:21px;font-weight:600;min-height:28px;word-break:break-all;color:var(--muted)}
+.resultat{font-size:33px;font-weight:800;letter-spacing:-1px;word-break:break-all}
+.resultat.erreur{font-size:17px;color:var(--neg);font-weight:700}
+
+/* ---------- clavier ---------- */
+.touches{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.touches button{font:inherit;font-size:21px;font-weight:700;padding:16px 0;border-radius:14px;cursor:pointer;
+  border:1px solid var(--line);background:var(--surface-2);color:var(--text);transition:transform .06s,filter .15s;
+  -webkit-tap-highlight-color:transparent;user-select:none}
+.touches button:active{transform:scale(.95)}
+.touches button:hover{filter:brightness(1.06)}
+.touches .op{background:var(--accent-soft);color:var(--accent);font-size:23px}
+.touches .eff{color:var(--neg)}
+.touches .eq{background:var(--accent);color:#fff;border-color:var(--accent)}
+.touches .large{grid-column:span 2}
+
+/* ---------- ticket ---------- */
+.ticket{font-variant-numeric:tabular-nums}
+.tk{display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-bottom:1px dashed var(--line)}
+.tk:last-child{border-bottom:none}
+.tk .h{font-size:11px;color:var(--muted);flex:none;width:38px;padding-top:3px}
+.tk .c{flex:1;min-width:0}
+.tk .e{font-size:12.5px;color:var(--muted);word-break:break-all}
+.tk .r{font-size:16px;font-weight:800}
+.tk .x{background:none;border:0;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 4px;border-radius:7px;flex:none}
+.tk .x:hover{color:var(--neg);background:var(--surface-2)}
+.total{display:flex;justify-content:space-between;align-items:center;border-top:2px solid var(--text);
+  margin-top:10px;padding-top:9px;font-weight:800;font-size:17px}
+.vide{text-align:center;color:var(--muted);font-size:13px;padding:20px 8px}
+.actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.btn{flex:1;min-width:120px;font:inherit;font-size:13.5px;font-weight:700;padding:11px 10px;border-radius:12px;cursor:pointer;
+  border:1px solid var(--line);background:var(--surface-2);color:var(--text)}
+.btn:hover{filter:brightness(1.06)}
+.btn.vert{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.rouge{color:var(--neg)}
+.aide{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.6}
+
+/* ---------- impression : uniquement le ticket, façon caisse ---------- */
+@media print{
+  @page{margin:10mm}
+  body{background:#fff;color:#000;padding:0;display:block}
+  .appli{max-width:none}
+  .sansimpression{display:none!important}
+  .carte{box-shadow:none;border:none;padding:0;margin:0;background:#fff}
+  .ticket{font-size:12px}
+  .tk{border-bottom:1px dashed #999}
+  .total{border-top:2px solid #000}
+  .entete-impression{display:block!important}
+}
+.entete-impression{display:none;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:10px}
+.entete-impression b{font-size:16px}
+</style>
+</head>
+<body>
+<div class="appli">
+
+  <h1 class="sansimpression">🧮 Calculatrice <span class="petit" id="compteur"></span></h1>
+
+  <div class="carte sansimpression">
+    <div class="ecran">
+      <div class="calcul" id="calcul">&nbsp;</div>
+      <div class="resultat" id="resultat">0</div>
+    </div>
+    <div class="touches">
+      <button class="eff" data-t="C">C</button>
+      <button class="eff" data-t="⌫">⌫</button>
+      <button class="op" data-t="%" title="divise par 100">%</button>
+      <button class="op" data-t="÷">÷</button>
+      <button data-t="7">7</button><button data-t="8">8</button><button data-t="9">9</button>
+      <button class="op" data-t="×">×</button>
+      <button data-t="4">4</button><button data-t="5">5</button><button data-t="6">6</button>
+      <button class="op" data-t="−">−</button>
+      <button data-t="1">1</button><button data-t="2">2</button><button data-t="3">3</button>
+      <button class="op" data-t="+">+</button>
+      <button class="large" data-t="0">0</button>
+      <button data-t=",">,</button>
+      <button class="eq" data-t="=">=</button>
+    </div>
+    <div class="aide">Clavier : chiffres, <b>+ − * /</b>, <b>Entrée</b> pour calculer, <b>Retour arrière</b> pour corriger, <b>Échap</b> pour tout effacer.</div>
+  </div>
+
+  <div class="carte">
+    <div class="entete-impression">
+      <b>🧮 Ticket de calculs</b>
+      <div style="font-size:11.5px;color:#444" id="dateImpression"></div>
+    </div>
+    <div class="ticket" id="ticket"></div>
+    <div class="actions sansimpression">
+      <button class="btn vert" onclick="imprimer()">🖨️ Imprimer le ticket</button>
+      <button class="btn" onclick="copier()">📋 Copier</button>
+      <button class="btn rouge" onclick="viderTicket()">🗑️ Nouveau ticket</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ===================== Mémoire ===================== */
+const CLE="calculatrice-ticket-v1";
+let lignes=[];
+try{ const b=localStorage.getItem(CLE); if(b) lignes=JSON.parse(b)||[]; }catch(e){ lignes=[]; }
+function enregistrer(){ try{ localStorage.setItem(CLE,JSON.stringify(lignes)); }catch(e){} }
+
+/* ===================== Affichage des nombres ===================== */
+function fr(n){
+  if(!isFinite(n)) return "—";
+  const arrondi=Math.round(n*1e10)/1e10;
+  return arrondi.toLocaleString("fr-FR",{maximumFractionDigits:10});
+}
+
+/* ===================== Calcul ===================== */
+/* Petit analyseur maison : plus sûr et plus prévisible qu'un eval().
+   Respecte les priorités : × et ÷ avant + et −. */
+function evaluer(saisie){
+  const t=saisie.replace(/,/g,".").replace(/×/g,"*").replace(/÷/g,"/").replace(/−/g,"-").replace(/\s/g,"");
+  if(!t) return NaN;
+  let i=0;
+  const nombre=()=>{
+    let s="";
+    if(t[i]==="-"||t[i]==="+") s+=t[i++];
+    while(i<t.length && /[0-9.]/.test(t[i])) s+=t[i++];
+    if(s===""||s==="-"||s==="+") return NaN;
+    let v=parseFloat(s);
+    while(t[i]==="%"){ i++; v=v/100; }        /* « % » = divisé par 100 */
+    return v;
+  };
+  const terme=()=>{
+    let v=nombre();
+    while(t[i]==="*"||t[i]==="/"){
+      const o=t[i++], d=nombre();
+      v = o==="*" ? v*d : v/d;
+    }
+    return v;
+  };
+  const expression=()=>{
+    let v=terme();
+    while(t[i]==="+"||t[i]==="-"){
+      const o=t[i++], d=terme();
+      v = o==="+" ? v+d : v-d;
+    }
+    return v;
+  };
+  const v=expression();
+  return (i>=t.length && isFinite(v)) ? v : NaN;
+}
+
+/* ===================== Saisie ===================== */
+let saisie="";
+const OPS=["+","−","×","÷"];
+const elCalcul=document.getElementById("calcul");
+const elResultat=document.getElementById("resultat");
+
+function rafraichir(){
+  elCalcul.innerHTML = saisie ? saisie : "&nbsp;";
+  if(!saisie){ elResultat.textContent="0"; elResultat.className="resultat"; return; }
+  const v=evaluer(saisie);
+  if(isNaN(v)){ elResultat.textContent="…"; elResultat.className="resultat"; }
+  else { elResultat.textContent=fr(v); elResultat.className="resultat"; }
+}
+
+function taper(t){
+  if(t==="C"){ saisie=""; rafraichir(); return; }
+  if(t==="⌫"){ saisie=saisie.slice(0,-1); rafraichir(); return; }
+  if(t==="="){ valider(); return; }
+  const dernier=saisie.slice(-1);
+  if(OPS.includes(t)){
+    if(!saisie){ if(t==="−") saisie="−"; rafraichir(); return; }   /* on autorise un nombre négatif */
+    if(OPS.includes(dernier)) saisie=saisie.slice(0,-1);           /* on remplace l'opérateur */
+    saisie+=t; rafraichir(); return;
+  }
+  if(t===","){
+    /* une seule virgule par nombre */
+    const bloc=saisie.split(/[+−×÷]/).pop();
+    if(bloc.includes(",")) return;
+    if(!bloc) saisie+="0";
+    saisie+=","; rafraichir(); return;
+  }
+  saisie+=t; rafraichir();
+}
+
+function valider(){
+  if(!saisie) return;
+  const v=evaluer(saisie);
+  if(isNaN(v)){ elResultat.textContent="Calcul incomplet"; elResultat.className="resultat erreur"; return; }
+  const d=new Date();
+  lignes.push({ h:String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"),
+                e:saisie, r:Math.round(v*1e10)/1e10 });   /* on gomme les miettes du calcul flottant */
+  enregistrer();
+  saisie=fr(v).replace(/\s/g,"").replace(/ /g,"");   /* le résultat devient le point de départ du calcul suivant */
+  dessinerTicket(); rafraichir();
+}
+
+/* ===================== Ticket ===================== */
+function dessinerTicket(){
+  const el=document.getElementById("ticket");
+  const c=document.getElementById("compteur");
+  if(!lignes.length){
+    el.innerHTML='<div class="vide">Aucun calcul pour l\'instant.<br>Chaque « = » s\'inscrit ici, comme sur un ticket de caisse.</div>';
+    c.textContent=""; return;
+  }
+  const somme=lignes.reduce((s,l)=>s+(isFinite(l.r)?l.r:0),0);
+  el.innerHTML = lignes.map((l,i)=>`<div class="tk">
+      <div class="h">${l.h}</div>
+      <div class="c"><div class="e">${l.e.replace(/</g,"&lt;")} =</div><div class="r">${fr(l.r)}</div></div>
+      <button class="x sansimpression" title="Retirer cette ligne" onclick="retirer(${i})">✕</button>
+    </div>`).join("")
+    + `<div class="total"><span>Somme des ${lignes.length} résultat${lignes.length>1?"s":""}</span><span>${fr(somme)}</span></div>`;
+  c.textContent = lignes.length+" calcul"+(lignes.length>1?"s":"");
+}
+function retirer(i){ lignes.splice(i,1); enregistrer(); dessinerTicket(); }
+function viderTicket(){
+  if(lignes.length && !confirm("Effacer le ticket et repartir à zéro ?")) return;
+  lignes=[]; enregistrer(); dessinerTicket();
+}
+function imprimer(){
+  if(!lignes.length){ alert("Le ticket est vide."); return; }
+  const d=new Date();
+  document.getElementById("dateImpression").textContent =
+    "Édité le "+d.toLocaleDateString("fr-FR")+" à "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+  window.print();
+}
+function copier(){
+  if(!lignes.length){ alert("Le ticket est vide."); return; }
+  const somme=lignes.reduce((s,l)=>s+(isFinite(l.r)?l.r:0),0);
+  const txt=lignes.map(l=>l.h+"  "+l.e+" = "+fr(l.r)).join("\n")+"\n----------\nSomme : "+fr(somme);
+  const fin=()=>{ const b=event&&event.target; if(b){ const t=b.textContent; b.textContent="✅ Copié"; setTimeout(()=>b.textContent=t,1400); } };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(fin).catch(()=>alert(txt));
+  else alert(txt);
+}
+
+/* ===================== Clavier ===================== */
+document.addEventListener("keydown",e=>{
+  const k=e.key;
+  if(/^[0-9]$/.test(k)) return taper(k);
+  if(k==="."||k===",") return taper(",");
+  if(k==="+") return taper("+");
+  if(k==="-") return taper("−");
+  if(k==="*"||k==="x") return taper("×");
+  if(k==="/") return taper("÷");
+  if(k==="%") return taper("%");
+  if(k==="Enter"||k==="="){ e.preventDefault(); return taper("="); }
+  if(k==="Backspace"){ e.preventDefault(); return taper("⌫"); }
+  if(k==="Escape") return taper("C");
+});
+document.querySelectorAll(".touches button").forEach(b=>b.onclick=()=>taper(b.dataset.t));
+
+dessinerTicket(); rafraichir();
+</script>
+</body>
+</html>

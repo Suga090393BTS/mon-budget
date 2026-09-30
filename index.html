@@ -295,6 +295,7 @@ function ensureDefaults(){
   if(!Array.isArray(DB.objectifs)) DB.objectifs=[];
   if(!Array.isArray(DB.libelles)) DB.libelles=[];
   if(!DB.trained||typeof DB.trained!=="object") DB.trained={};
+  if(!DB.payes||typeof DB.payes!=="object") DB.payes={};   /* paye saisie mois par mois : {0:…, 1:…} */
   if(!DB.paye||typeof DB.paye!=="object") DB.paye={montant:0,lines:[]};
   if(!Array.isArray(DB.paye.lines)) DB.paye.lines=[];
   /* migration : anciennes lignes libres {nom,dest} → lignes par catégorie / compte */
@@ -306,6 +307,11 @@ function ensureDefaults(){
     DB.paye.lines=DB.paye.lines.filter(l=>l.acct);
   }
   if(DB.contratHebdo==null) DB.contratHebdo=42;
+  /* Congés : on cumule désormais les jours acquis mois après mois.
+     Reprise de l'ancien réglage « droit annuel » → taux mensuel (÷12). */
+  if(DB.congesTaux==null) DB.congesTaux = (DB.congesAnnuels>0 ? Math.round(DB.congesAnnuels/12*100)/100 : 2.5);
+  if(DB.congesDepart==null) DB.congesDepart = 0;
+  if(!DB.congesDepuis) DB.congesDepuis = todayISO().slice(0,8)+"01";
   if(!DB.periodes||typeof DB.periodes!=="object") DB.periodes={};   /* période de paie retenue, par mois : {"2026-07":{du,au}} */
   DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
   /* migration : ancienne double-saisie €/an → tout ramené en mensuel (÷12) dans c.budget */
@@ -1417,12 +1423,31 @@ function soutienReel(){ const b=computeBalances(); return {
   porte:Math.max(0,Math.round((b.portefeuille||0)*100)/100),
   caisse:Math.max(0,Math.round((b.caisse||0)*100)/100),
   livretA:Math.max(0,Math.round((b.livretA||0)*100)/100) }; }
-function aDepenser(){ return DB.aDepenser||0; }
+function aDepenser(){ return DB.aDepenser||0; }                     /* paye habituelle, sert de valeur par défaut */
+/* Une paye par mois : ce qui est saisi pour un mois précis l'emporte, sinon la paye habituelle. */
+function payeDuMois(m){ const p=DB.payes||{}; return p[m]!=null ? p[m] : (DB.aDepenser||0); }
+function setPayeDuMois(m,v){
+  DB.payes=DB.payes||{};
+  DB.payes[m]=Math.max(0,parseFloat(String(v).replace(",","."))||0);
+  if(!DB.aDepenser) DB.aDepenser=DB.payes[m];                        /* la première saisie devient la paye habituelle */
+  save(); render();
+}
+function payeHabituelle(m){ DB.aDepenser=payeDuMois(m); DB.payes={}; save(); render(); toast("Appliqué à tous les mois ✅"); }
+/* les mois qui comptent pour l'année : ceux où une paye est saisie ou des opérations existent */
+function moisRenseignes(){
+  const s=new Set(); DB.transactions.forEach(t=>{ const mo=monthOf(t.date); if(mo!=null) s.add(mo); });
+  Object.keys(DB.payes||{}).forEach(k=>{ if(DB.payes[k]>0) s.add(+k); });
+  return [...s].sort((a,b)=>a-b);
+}
+function payeAnnuelle(){ const ms=moisRenseignes(); return { tot:ms.reduce((a,m)=>a+payeDuMois(m),0), n:ms.length }; }
 function setADepenser(v){ DB.aDepenser=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
 /* plafond = limite mensuelle de la catégorie (un prix annuel se convertit en mensuel via ÷12) */
 function catPlafond(c){ return Math.round((+c.budget||0)*100)/100; }
-function aDepenserCardHTML(totPlaf){
-  const paye=aDepenser(), s=soutienReel();
+function aDepenserCardHTML(totPlaf,m,nbMois){
+  const annee=(m==="all");
+  const pa=annee?payeAnnuelle():null;
+  const paye=annee?pa.tot:payeDuMois(m);
+  const s=soutienReel();
   const t2=Math.round((paye+s.porte)*100)/100, tert=Math.round((s.caisse+s.livretA)*100)/100, t3=Math.round((t2+tert)*100)/100;
   const pct=paye?Math.min(totPlaf/paye*100,100):0;
   let col, msg;
@@ -1430,9 +1455,18 @@ function aDepenserCardHTML(totPlaf){
   else if(totPlaf<=t2){ col='var(--warn)'; msg=`🟡 Ça dépasse ta paye de <b>${eur0(totPlaf-paye)}</b> — ton <b>portefeuille</b> (${eur0(s.porte)}) peut compléter.`; }
   else if(totPlaf<=t3){ col='var(--warn)'; msg=`🟠 Ça dépasse ta paye + ton portefeuille — il faudrait piocher <b>${eur0(totPlaf-t2)}</b> dans ta <b>caisse</b> ou ton <b>Livret A</b> (dernier recours).`; }
   else { col='var(--neg)'; msg=`🔴 Ça dépasse tout ce que tu as (${eur0(t3)}) de <b class="neg">${eur0(totPlaf-t3)}</b> — baisse quelques limites.`; }
-  return `<div class="card"><h2>💶 Ma paye — ce que j'ai à dépenser</h2>
+  const perso=(DB.payes||{})[m]!=null;
+  return `<div class="card"><h2>💶 ${annee?"Ma paye sur l'année":"Ma paye — ce que j'ai à dépenser"}</h2>
     <div class="muted" style="font-size:12.5px;margin-bottom:10px">Ta <b>paye</b>, c'est ce que tu as à dépenser dans tes enveloppes. En soutien il y a ton <b>portefeuille</b>, et en dernier recours ta <b>caisse</b> et ton <b>Livret A</b>.</div>
-    <div class="field" style="margin:0"><label>Ma paye ce mois-ci (€)</label><input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${paye||""}" onchange="setADepenser(this.value)"></div>
+    ${annee
+      ? `<div style="display:flex;justify-content:space-between;align-items:center;background:var(--surface-2);border-radius:13px;padding:12px 14px">
+           <span class="muted" style="font-size:12.5px">Cumul des payes de tes <b>${pa.n}</b> mois saisis</span>
+           <b style="font-size:19px">${eur0(paye)}</b></div>`
+      : `<div class="field" style="margin:0"><label>Ma paye en ${MONTHS[m]} (€)</label>
+           <input type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${paye||""}" onchange="setPayeDuMois(${m},this.value)"></div>
+         <div class="muted" style="font-size:11.5px;margin-top:-6px">${perso
+            ? `Montant propre à ${MONTHS[m]}. <button class="btn ghost sm" style="display:inline;width:auto;padding:2px 8px" onclick="payeHabituelle(${m})">l'appliquer à tous les mois</button>`
+            : `Les autres mois affichent le même montant tant que tu ne les modifies pas.`}</div>`}
     ${paye>0&&totPlaf>0?`<div class="bbar" style="margin-top:12px">
       <div class="top"><span><b>Mes enveloppes</b></span><span style="color:${col}">${eur0(totPlaf)} <span class="muted">/ ${eur0(paye)}</span></span></div>
       <div class="track"><div class="fill" style="width:${pct}%;background:${col==='var(--pos)'?'var(--accent)':col}"></div></div>
@@ -1442,10 +1476,12 @@ function aDepenserCardHTML(totPlaf){
   </div>`;
 }
 function viewBudget(){
-  const m=UI.month==="all"?new Date().getMonth():UI.month;
+  const annee=UI.month==="all";                       /* « Toute l'année » : on cumule tout */
+  const m=annee?"all":UI.month;
+  const nbMois=annee?Math.max(1,moisRenseignes().length):1;   /* les limites sont mensuelles → × nb de mois */
   const tx=txOfMonth(m).filter(isDepense);
   const spentM={}; tx.forEach(t=>{const c=t.categorie||"Autres"; spentM[c]=(spentM[c]||0)+Math.abs(t.montant);});
-  const cats=DB.categories.map((c,i)=>({c,i,plaf:catPlafond(c),sMois:spentM[c.name]||0})).filter(x=>x.c.active);
+  const cats=DB.categories.map((c,i)=>({c,i,plaf:catPlafond(c)*nbMois,sMois:spentM[c.name]||0})).filter(x=>x.c.active);
   const totPlaf=cats.reduce((a,x)=>a+x.plaf,0);
   const inputs=x=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11.5px" class="muted">
       <span style="display:inline-flex;align-items:center;gap:3px">€/mois <input type="number" min="0" step="5" placeholder="0" value="${x.c.budget||""}" onchange="setCatBudget(${x.i},this.value)" style="width:64px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"></span>
@@ -1460,11 +1496,14 @@ function viewBudget(){
         ${inputs(x)}
       </div></div>`;};
   return `<div class="pagehead">🎯 Mes enveloppes</div>${monthSelector()}
-  ${aDepenserCardHTML(totPlaf)}
-  <div class="card"><h2>Mes enveloppes — ${MONTHS[m]}</h2>
-    <div class="muted" style="font-size:12px;margin-bottom:10px">Mets une limite <b>par mois</b> pour chaque catégorie. Un abonnement à l'année ? Tape son prix dans la case, puis clique <b>« c'était par an ÷12 »</b> — l'app le passe en mensuel. <button class="btn ghost sm" style="display:inline;width:auto;padding:3px 8px" onclick="proposerPlafonds()">💡 propose-moi des montants</button></div>
+  ${aDepenserCardHTML(totPlaf,m,nbMois)}
+  <div class="card"><h2>Mes enveloppes — ${annee?"toute l'année":MONTHS[m]}</h2>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">${annee
+      ? `Tes dépenses <b>cumulées</b> sur l'année, comparées à tes limites mensuelles multipliées par les <b>${nbMois} mois</b> que tu as saisis.`
+      : `Mets une limite <b>par mois</b> pour chaque catégorie. Un abonnement à l'année ? Tape son prix dans la case, puis clique <b>« c'était par an ÷12 »</b> — l'app le passe en mensuel.`}
+      <button class="btn ghost sm" style="display:inline;width:auto;padding:3px 8px" onclick="proposerPlafonds()">💡 propose-moi des montants</button></div>
     ${cats.map(row).join("")}</div>
-  ${epargneCardHTML(m)}`;
+  ${epargneCardHTML(m,nbMois)}`;
 }
 function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
 function convertAn(i){ const c=DB.categories[i]; if(!c)return; const v=+c.budget||0; if(v<=0){ toast("Tape d'abord le prix à l'année dans la case"); return; }
@@ -1499,11 +1538,12 @@ function mouvementsCompte(acctId,m){
 }
 /* combien est réellement arrivé sur un compte ce mois-ci (entrées − sorties) */
 function misVersCompte(acctId,m){ return mouvementsCompte(acctId,m).net; }
-function epargneCardHTML(m){
+function epargneCardHTML(m,nbMois){
+  const k=nbMois||1;                       /* objectifs mensuels × nb de mois quand on regarde l'année */
   const lignes=DB.paye.lines;
-  const totCible=lignes.reduce((a,l)=>a+(l.acct?payeAmt(l):0),0);
+  const totCible=lignes.reduce((a,l)=>a+(l.acct?payeAmt(l)*k:0),0);
   const totFait=lignes.reduce((a,l)=>a+(l.acct?Math.max(0,misVersCompte(l.acct,m)):0),0);
-  const rows=lignes.map(l=>{ const cible=payeAmt(l), mv=l.acct?mouvementsCompte(l.acct,m):{in:0,out:0,net:0}, fait=Math.max(0,mv.net);
+  const rows=lignes.map(l=>{ const cible=payeAmt(l)*k, mv=l.acct?mouvementsCompte(l.acct,m):{in:0,out:0,net:0}, fait=Math.max(0,mv.net);
     const detail=mv.out>0.005?` <span class="muted">(${eur0(mv.in)} entrés − ${eur0(mv.out)} sortis)</span>`:"";
     const r=cible?fait/cible:0, atteint=cible>0&&fait>=cible-0.005, col=atteint?'var(--pos)':'var(--accent)', reste=Math.max(0,cible-fait);
     return `<div class="setrow" style="flex-wrap:wrap;align-items:center">
@@ -1521,7 +1561,7 @@ function epargneCardHTML(m){
         <div class="muted" style="font-size:11px;margin-top:2px">${atteint?`✅ Objectif atteint — <b>${eur0(fait)}</b> mis ce mois-ci${fait>cible+0.005?` (dont ${eur0(fait-cible)} en plus 🎉)`:""}`:`déjà mis : <b>${eur0(fait)}</b> · reste <b>${eur0(reste)}</b> pour atteindre ton objectif`}${detail}</div>
       </div>`:""}
     </div>`;}).join("");
-  return `<div class="card"><h2>🎯 Mes objectifs d'épargne du mois</h2>
+  return `<div class="card"><h2>🎯 Mes objectifs d'épargne${k>1?" — cumul sur "+k+" mois":" du mois"}</h2>
     <div class="muted" style="font-size:12.5px;margin-bottom:10px">Fixe une cible par compte (Livret A, caisse, Swissborg…). Ce sont des <b>objectifs souples</b> : t'en approcher c'est déjà bien, faire moins un mois n'est pas grave. Le <b>⇄</b> prépare le virement du reste.<br>Tout ce qui arrive sur le compte compte : les virements <b>et</b> les entrées saisies dessus (une entrée d'espèces dans la caisse, par exemple) — moins ce qui en ressort.</div>
     ${rows||'<div class="muted" style="font-size:12.5px">Aucun objectif d\'épargne pour l\'instant.</div>'}
     ${totCible>0?`<div class="bbar" style="margin-top:12px">
@@ -1805,9 +1845,29 @@ function hColor(h){ if(h<=0)return "transparent"; if(h<4)return "var(--info)"; i
 function vacOf(iso){ return (DB.vacances||[]).find(v=>v.du<=iso&&iso<=v.au); }
 function vacDays(v){ const a=v.du.split("-").map(Number),b=v.au.split("-").map(Number);
   return Math.round((new Date(b[0],b[1]-1,b[2])-new Date(a[0],a[1]-1,a[2]))/864e5)+1; }
-/* nb de jours d'une période tombant dans une année donnée */
-function vacDaysInYear(v,year){ const y0=year+"-01-01",y1=year+"-12-31"; const du=v.du>y0?v.du:y0, au=v.au<y1?v.au:y1;
-  return du>au?0:vacDays({du,au}); }
+/* ---- Compteur de congés : solde de départ + jours acquis chaque mois − jours posés ---- */
+function congesTaux(){ return DB.congesTaux!=null?DB.congesTaux:2.5; }
+/* nombre de mois entiers écoulés depuis la date de départ */
+function moisDepuis(iso){
+  if(!iso) return 0;
+  const a=iso.split("-").map(Number), b=todayISO().split("-").map(Number);
+  let n=(b[0]-a[0])*12+(b[1]-a[1]);
+  if(b[2]<a[2]) n--;
+  return Math.max(0,n);
+}
+function congesCompte(){
+  const depuis=DB.congesDepuis||todayISO().slice(0,8)+"01";
+  const mois=moisDepuis(depuis);
+  const acquis=Math.round(mois*congesTaux()*100)/100;
+  const depart=+DB.congesDepart||0;
+  /* posés : toutes les périodes à partir de la date de départ (y compris celles à venir, déjà engagées) */
+  const poses=(DB.vacances||[]).reduce((s,v)=>{
+    if((v.au||"")<depuis) return s;
+    const du=(v.du||"")<depuis?depuis:v.du;
+    return s+vacDays({du,au:v.au});
+  },0);
+  return { depuis, mois, acquis, depart, poses, solde:Math.round((depart+acquis-poses)*100)/100 };
+}
 /* ---------- RELEVÉ D'HEURES MENSUEL (à remettre à la responsable) ---------- */
 function releveYM(){ return UI.releveMois||todayISO().slice(0,7); }
 function ouvrirReleve(){ UI.releveMois=releveYM(); UI.tab="releve"; renderNav(); render(); window.scrollTo(0,0); }
@@ -2043,9 +2103,7 @@ function viewHoraires(){
   /* ---------- VACANCES (congés posés) ---------- */
   const ve=UI.vacEdit||{}; const vacEditing=!!(UI.vacEdit&&UI.vacEdit.id);
   const vacs=(DB.vacances||[]).slice().sort((a,b)=>(b.du||"").localeCompare(a.du||""));
-  const annee=+todayISO().slice(0,4);
-  const poses=vacs.reduce((s,v)=>s+vacDaysInYear(v,annee),0);
-  const quota=DB.congesAnnuels!=null?DB.congesAnnuels:0;
+  const cg=congesCompte();
   const today=todayISO();
   const vacRows=vacs.map(v=>{const nb=vacDays(v); const encours=v.du<=today&&today<=v.au; const futur=v.du>today;
     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line);${!encours&&!futur?'opacity:.6':''}">
@@ -2055,15 +2113,32 @@ function viewHoraires(){
         ${v.note?`<div class="muted" style="font-size:11.5px">${v.note}</div>`:''}</div>
       <div style="font-weight:800;white-space:nowrap">${nb} j</div>
       <button class="del" onclick="vacEdit('${v.id}')">✏️</button><button class="del" onclick="delVac('${v.id}')">🗑️</button></div>`;}).join("");
-  const vacHTML=`<div class="card"><h2>🏖️ Vacances <span style="margin-left:auto;font-size:13px">${poses} j posé${poses>1?'s':''} en ${annee}${quota>0?` <span style="color:${quota-poses>=0?'var(--pos)':'var(--neg)'}">· reste ${quota-poses} j</span>`:''}</span></h2>
+  const jrs=(n)=>(Math.round(n*100)/100).toLocaleString("fr-FR")+" j";
+  const vacHTML=`<div class="card"><h2>🏖️ Vacances <span style="margin-left:auto;font-size:13px;color:${cg.solde>=0?'var(--pos)':'var(--neg)'}">${jrs(cg.solde)} disponible${cg.solde>1?'s':''}</span></h2>
+    <div style="background:var(--surface-2);border-radius:14px;padding:12px 14px;margin-bottom:14px;font-size:13px">
+      <div style="display:flex;justify-content:space-between;padding:3px 0"><span class="muted">Solde de départ au ${frDate(cg.depuis)}</span><b>${jrs(cg.depart)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0"><span class="muted">Acquis depuis · ${congesTaux().toLocaleString("fr-FR")} j/mois × ${cg.mois} mois</span><b class="pos">+ ${jrs(cg.acquis)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0"><span class="muted">Congés posés</span><b class="neg">− ${jrs(cg.poses)}</b></div>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid var(--line);margin-top:6px;padding-top:7px;font-weight:800;font-size:14.5px">
+        <span>Il te reste</span><span style="color:${cg.solde>=0?'var(--pos)':'var(--neg)'}">${jrs(cg.solde)}</span></div>
+    </div>
     <div class="row2"><div class="field"><label>Du</label><input id="vDu" type="date" value="${ve.du||todayISO()}"></div>
       <div class="field"><label>Au (inclus)</label><input id="vAu" type="date" value="${ve.au||todayISO()}"></div></div>
     <div class="field"><label>Note (facultatif)</label><input id="vNote" placeholder="Ex : été, Noël…" value="${(ve.note||'').replace(/"/g,'&quot;')}"></div>
     <button class="btn" onclick="saveVac()">${vacEditing?"💾 Enregistrer":"✅ Poser ces vacances"}</button>
     ${vacEditing?`<button class="btn ghost" onclick="UI.vacEdit=null;render()" style="margin-top:8px">Annuler</button>`:""}
     ${vacRows?`<div style="margin-top:14px">${vacRows}</div>`:`<div class="empty" style="margin-top:12px">Aucune période enregistrée.</div>`}
-    <div class="field" style="margin-top:14px"><label>Droit aux congés (jours / an) <span class="muted" style="font-weight:400">— facultatif, pour voir ce qu'il te reste</span></label>
-      <input type="number" min="0" step="0.5" value="${quota||''}" placeholder="Ex : 25" onchange="setConges(this.value)"></div>
+    <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+      <div class="muted" style="font-size:12px;margin-bottom:9px">⚙️ <b>Mon compteur de congés</b> — renseigne ton solde une fois, l'app ajoute les jours acquis chaque mois toute seule.</div>
+      <div class="row2">
+        <div class="field"><label>J'avais déjà (jours)</label>
+          <input type="number" min="0" step="0.5" value="${DB.congesDepart||''}" placeholder="Ex : 22" onchange="setCongesDepart(this.value)"></div>
+        <div class="field"><label>à la date du</label>
+          <input type="date" value="${cg.depuis}" onchange="setCongesDepuis(this.value)"></div>
+      </div>
+      <div class="field" style="margin-bottom:0"><label>J'acquiers (jours par mois) <span class="muted" style="font-weight:400">— 2,5 en France (30 j/an)</span></label>
+        <input type="number" min="0" step="0.5" value="${congesTaux()}" onchange="setCongesTaux(this.value)"></div>
+    </div>
   </div>`;
 
   /* ---------- DÉTAIL PAR SEMAINE ---------- */
@@ -2133,7 +2208,9 @@ function saveVac(){
 }
 function vacEdit(id){ UI.vacEdit=(DB.vacances||[]).find(x=>x.id===id); render(); window.scrollTo(0,0); }
 function delVac(id){ if(!confirm("Supprimer cette période de vacances ?"))return; DB.vacances=DB.vacances.filter(x=>x.id!==id); save(); render(); }
-function setConges(v){ const n=parseFloat(String(v).replace(",",".")); DB.congesAnnuels=isNaN(n)?null:n; save(); render(); }
+function setCongesDepart(v){ DB.congesDepart=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
+function setCongesDepuis(v){ if(v){ DB.congesDepuis=v; save(); render(); } }
+function setCongesTaux(v){ DB.congesTaux=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
 function setContrat(v){ const n=parseFloat(String(v).replace(",",".")); if(isNaN(n))return; DB.contratHebdo=n; save(); render(); }
 /* semainier : navigation de semaine (±7j) + clic sur un jour pour le pré-saisir */
 function planMove(d){ const base=UI.planWeek||weekKey(todayISO()); const p=base.split("-").map(Number); const dt=new Date(p[0],p[1]-1,p[2]+d*7); UI.planWeek=weekKey(dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0")); render(); }
@@ -2255,13 +2332,13 @@ window.openCompteur=openCompteur;window.recalcCaisse=recalcCaisse;window.saveCai
 window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.espToggle=espToggle;window.onCompteChange=onCompteChange;
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
-window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setConges=setConges;
+window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setCongesDepart=setCongesDepart;window.setCongesDepuis=setCongesDepuis;window.setCongesTaux=setCongesTaux;
 window.ouvrirReleve=ouvrirReleve;window.setReleveMois=setReleveMois;window.setReleveMode=setReleveMode;window.setPeriode=setPeriode;window.resetPeriode=resetPeriode;window.setReleveNom=setReleveNom;window.setReleveEmployeur=setReleveEmployeur;window.imprimerReleve=imprimerReleve;
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
 window.starLib=starLib;window.setLib=setLib;window.delLib=delLib;window.addLib=addLib;
-window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.proposerPlafonds=proposerPlafonds;window.convertAn=convertAn;window.setADepenser=setADepenser;
+window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.proposerPlafonds=proposerPlafonds;window.convertAn=convertAn;window.setADepenser=setADepenser;window.setPayeDuMois=setPayeDuMois;window.payeHabituelle=payeHabituelle;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 /* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
 function effectiveDark(){ const t=STORE.get("theme"); if(t==="dark")return true; if(t==="light")return false;
