@@ -51,14 +51,28 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Ar
 .topbar>div:first-child{min-width:0}
 .topbar .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:420px){ .topbar{padding-left:14px;padding-right:14px;gap:7px} .topbar .iconbtn{width:34px;height:34px;font-size:16px} }
-/* Calculatrice : s'ouvre PAR-DESSUS l'app, sans la quitter — l'écran en cours et la synchro cloud continuent */
-.calcpanel{position:fixed;inset:0;z-index:60;background:var(--bg);display:none;flex-direction:column}
+/* Calculatrice : un panneau À CÔTÉ de l'app (en bas sur téléphone, à droite sur ordi).
+   L'app reste utilisable en même temps : on calcule ET on fait sa saisie.
+   « Mes tickets » s'affiche à part : en plein écran sur téléphone, dans le panneau sur ordi. */
+.calcpanel{position:fixed;z-index:45;display:none;flex-direction:column;background:var(--bg);
+  left:0;right:0;bottom:var(--navh,0px);height:min(370px,55vh);border-top:1px solid var(--line);box-shadow:0 -8px 24px rgba(15,23,42,.16)}
 .calcpanel.show{display:flex}
-.calcpanel .calcbar{display:flex;align-items:center;gap:10px;color:#fff;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));
-  background:linear-gradient(135deg,var(--accent),#0e6b8a)}
-.calcpanel .calcbar button{background:rgba(255,255,255,.16);border:none;color:#fff;font:inherit;font-size:14px;font-weight:700;
-  padding:9px 14px;border-radius:11px;cursor:pointer}
+.calcpanel.plein{top:0;bottom:0;height:auto;z-index:60}
+.calcpanel .calcbar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:linear-gradient(135deg,var(--accent),#0e6b8a)}
+.calcpanel.plein .calcbar{padding-top:max(6px,env(safe-area-inset-top))}
+.calcpanel .calcbar button{background:rgba(255,255,255,.16);border:none;color:#fff;font:inherit;font-size:13px;font-weight:700;
+  padding:7px 12px;border-radius:10px;cursor:pointer}
+.calcpanel .calcbar .x{margin-left:auto}
 .calcpanel iframe{flex:1;width:100%;border:0;background:var(--bg)}
+body.calc-ouverte .main{padding-bottom:calc(min(370px,55vh) + 120px)}   /* on peut faire défiler la page au-dessus du panneau */
+body.calc-ouverte .toast{bottom:calc(min(370px,55vh) + var(--navh,0px) + 14px)}
+@media(min-width:880px){
+  .calcpanel,.calcpanel.plein{top:0;bottom:0;left:auto;right:0;width:340px;height:auto;z-index:45;
+    border-top:0;border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(15,23,42,.10)}
+  body.calc-ouverte{padding-right:340px}
+  body.calc-ouverte .main{padding-bottom:40px}
+  body.calc-ouverte .toast{bottom:30px}
+}
 .iconbtn{background:rgba(255,255,255,.16);border:none;color:#fff;width:38px;height:38px;border-radius:11px;
   font-size:17px;cursor:pointer;display:grid;place-items:center;transition:.15s}
 .iconbtn:active{transform:scale(.92)}
@@ -232,7 +246,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v1 · 30/09</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v2 · 30/09</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -247,7 +261,8 @@ setTimeout(function(){
   <nav class="bottomnav" id="bottomnav"></nav>
 </div>
 <div class="calcpanel no-print" id="calcPanel">
-  <div class="calcbar"><button onclick="fermerCalc()">← Retour au budget</button></div>
+  <div class="calcbar"><button id="btnTickets" onclick="calcTickets()">🧾 Mes tickets</button>
+    <button class="x" onclick="fermerCalc()" title="Fermer la calculatrice">✕ Fermer</button></div>
   <iframe id="calcFrame" title="Calculatrice"></iframe>
 </div>
 <div class="toast" id="toast"></div>
@@ -2367,17 +2382,40 @@ function applyTheme(){ const t=STORE.get("theme");
   const b=document.getElementById("btnTheme"); if(b){ const d=effectiveDark(); b.textContent=d?"☀️":"🌙"; b.title=d?"Passer en mode jour":"Passer en mode nuit"; } }
 function toggleTheme(){ STORE.set("theme", effectiveDark()?"light":"dark"); applyTheme(); }
 window.toggleTheme=toggleTheme;
-/* ---------- Calculatrice (calculatrice.html) : ouverte par-dessus l'app, jamais à la place ---------- */
-function ouvrirCalc(){
-  const f=document.getElementById("calcFrame");
-  const focus=()=>{ try{ f.contentWindow.focus(); }catch(e){} };   /* le clavier du Mac tape directement dedans */
-  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur();   /* …et jamais dans le formulaire caché dessous */
-  if(!f.getAttribute("src")){ f.onload=focus; f.src="calculatrice.html"; }   /* chargée une fois : le calcul en cours reste là */
-  document.getElementById("calcPanel").classList.add("show");
-  setTimeout(focus,80);
+/* ---------- Calculatrice (calculatrice.html) : un panneau à côté de l'app, jamais à sa place ---------- */
+/* Le panneau montre les touches (#touches) ; « Mes tickets » bascule la même page sur #tickets. */
+const CALC_CLE="calculatrice-ticket-v1";   /* là où calculatrice.html range son ticket */
+function calcNbTickets(){ try{ return (JSON.parse(localStorage.getItem(CALC_CLE))||[]).length; }catch(e){ return 0; } }
+function majBtnTickets(){
+  const b=document.getElementById("btnTickets"); if(!b)return;
+  const n=calcNbTickets();
+  b.textContent=document.getElementById("calcPanel").classList.contains("plein") ? "🧮 Revenir aux touches" : "🧾 Mes tickets"+(n?" ("+n+")":"");
 }
-function fermerCalc(){ document.getElementById("calcPanel").classList.remove("show"); }
-window.ouvrirCalc=ouvrirCalc; window.fermerCalc=fermerCalc;
+function ouvrirCalc(){
+  const p=document.getElementById("calcPanel"), f=document.getElementById("calcFrame");
+  if(p.classList.contains("show")){ fermerCalc(); return; }   /* le bouton 🧮 ouvre et ferme */
+  const nav=document.getElementById("bottomnav");
+  document.documentElement.style.setProperty("--navh",(nav?nav.offsetHeight:0)+"px");   /* sur téléphone : posé juste au-dessus du menu du bas */
+  const focus=()=>{ try{ f.contentWindow.focus(); }catch(e){} };   /* le clavier du Mac tape directement dedans */
+  if(!f.getAttribute("src")){ f.onload=focus; f.src="calculatrice.html#touches"; }   /* chargée une fois : le calcul en cours reste là */
+  p.classList.add("show"); document.body.classList.add("calc-ouverte");
+  majBtnTickets(); setTimeout(focus,80);
+}
+function fermerCalc(){
+  const p=document.getElementById("calcPanel");
+  if(p.classList.contains("plein")) calcTickets();   /* on repart sur les touches la prochaine fois */
+  p.classList.remove("show"); document.body.classList.remove("calc-ouverte");
+}
+function calcTickets(){
+  const p=document.getElementById("calcPanel"), f=document.getElementById("calcFrame");
+  const voir=!p.classList.contains("plein");
+  p.classList.toggle("plein",voir);
+  try{ f.contentWindow.location.hash=voir?"tickets":"touches"; f.contentWindow.focus(); }catch(e){}
+  majBtnTickets();
+}
+/* chaque « = » dans la calculatrice met à jour le nombre sur le bouton « Mes tickets » */
+window.addEventListener("storage",e=>{ if(e.key===CALC_CLE) majBtnTickets(); });
+window.ouvrirCalc=ouvrirCalc; window.fermerCalc=fermerCalc; window.calcTickets=calcTickets;
 /* attend que la bibliothèque Supabase soit arrivée — 6 s maximum, puis on continue sans elle */
 function attendreSupabase(){
   return new Promise(res=>{
