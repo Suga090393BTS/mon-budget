@@ -129,6 +129,14 @@ body.calc-ouverte .toast{bottom:calc(min(370px,55vh) + var(--navh,0px) + 14px)}
 .seg button{flex:1;border:none;background:none;padding:10px 6px;border-radius:9px;font:inherit;font-weight:700;
   color:var(--muted);cursor:pointer;transition:.15s;font-size:13.5px}
 .seg button.on-dep{background:var(--neg);color:#fff}
+/* Sous-onglets d'une page (ex. Horaires : Semaine · Mes heures · Congés · Relevé) */
+.soustabs{display:flex;gap:4px;background:var(--surface-2);border-radius:14px;padding:4px;margin:-4px 0 16px}
+.soustabs button{flex:1;min-width:0;border:none;background:none;padding:8px 2px;border-radius:10px;font:inherit;font-size:12.5px;font-weight:700;
+  color:var(--muted);cursor:pointer;transition:.15s;display:flex;flex-direction:column;align-items:center;gap:2px;white-space:nowrap}
+.soustabs button .ic{font-size:17px}
+.soustabs button.on{background:var(--surface);color:var(--accent);box-shadow:0 1px 5px rgba(15,23,42,.13)}
+@media(min-width:880px){ .soustabs button{flex-direction:row;justify-content:center;gap:7px;font-size:13.5px;padding:10px 6px} }
+#horForm{scroll-margin-top:90px}
 .seg button.on-ent{background:var(--pos);color:#fff}
 .seg button.on-tr{background:var(--info);color:#fff}
 .btn{width:100%;border:none;background:var(--accent);color:#fff;font:inherit;font-weight:700;font-size:16px;
@@ -246,7 +254,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v2 · 30/09</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v3 · 01/10</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -645,7 +653,7 @@ function renderNav(){
 function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; UI.serieOpen=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
-  const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires,releve:viewReleve}[UI.tab]||viewDash;
+  const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
   m.innerHTML=v();
   updateTop();
   if(UI.tab==="dash") drawBars("barsDash");
@@ -1904,7 +1912,7 @@ function congesCompte(){
 }
 /* ---------- RELEVÉ D'HEURES MENSUEL (à remettre à la responsable) ---------- */
 function releveYM(){ return UI.releveMois||todayISO().slice(0,7); }
-function ouvrirReleve(){ UI.releveMois=releveYM(); UI.tab="releve"; renderNav(); render(); window.scrollTo(0,0); }
+function ouvrirReleve(){ UI.releveMois=releveYM(); UI.tab="horaires"; UI.horTab="releve"; renderNav(); render(); window.scrollTo(0,0); }
 function setReleveMois(v){ UI.releveMois=v; render(); }
 function setReleveNom(v){ DB.nomSalarie=(v||"").trim(); save(); }
 function setReleveEmployeur(v){ DB.employeur=(v||"").trim(); save(); }
@@ -2034,8 +2042,7 @@ function viewReleve(){
   </div>`;
 
   const perso=!!(DB.periodes||{})[ym];
-  return `<div class="pagehead no-print">📄 Relevé d'heures</div>
-  <div class="card no-print">
+  return `<div class="card no-print">
     <div class="row2">
       <div class="field"><label>Mois de paie</label>
         <select onchange="setReleveMois(this.value)">${dispo.map(m=>`<option value="${m}" ${m===ym?"selected":""}>${moisLong(m)}</option>`).join("")}</select></div>
@@ -2059,8 +2066,7 @@ function viewReleve(){
     <button class="btn" onclick="imprimerReleve()">🖨️ Enregistrer en PDF / Imprimer</button>
     <div class="muted" style="font-size:11.5px;margin-top:9px">Dans la fenêtre d'impression, choisis <b>« PDF » → « Enregistrer au format PDF »</b> (sur iPhone : bouton Partager). Seule la feuille ci-dessous sera imprimée.</div>
   </div>
-  <div class="card">${feuille}</div>
-  <button class="btn ghost no-print" onclick="go('horaires')" style="margin-top:4px">← Retour aux horaires</button>`;
+  <div class="card">${feuille}</div>`;
 }
 function viewHoraires(){
   const e=UI.horEdit||{}; const prevu=prevuJour(), contrat=contratHebdo();
@@ -2089,6 +2095,7 @@ function viewHoraires(){
       <div style="font-weight:800;font-size:14px;text-align:right;color:${worked?'var(--text)':'var(--muted)'};line-height:1.35">${horaires}</div></div>`;
   }
   const last=new Date(monday); last.setDate(monday.getDate()+6);
+  const semTot=list.filter(x=>weekKey(x.date)===planWk).reduce((s,x)=>s+hoursOf(x),0), semDiff=semTot-contrat;
   const planNav=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
     <button class="del" onclick="planMove(-1)" style="font-size:18px">‹</button>
     <b style="flex:1;text-align:center">Semaine du ${monday.getDate()}/${String(monday.getMonth()+1).padStart(2,"0")} au ${last.getDate()}/${String(last.getMonth()+1).padStart(2,"0")}</b>
@@ -2096,7 +2103,10 @@ function viewHoraires(){
   const planningHTML=`<div class="card"><h2>🗓️ Mon semainier</h2>
     ${planNav}
     ${dayRows}
-    <div class="muted" style="font-size:11px;margin-top:10px">Le détail et le total des heures sont calculés plus bas, dans les tableaux par semaine.</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);margin-top:8px;padding-top:10px;font-weight:800">
+      <span>Total de la semaine</span>
+      <span>${fmtH(semTot)} <span style="color:${semDiff>=0?'var(--pos)':'var(--neg)'};font-weight:700">(${semDiff>=0?'+':''}${fmtH(semDiff)})</span></span></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">Touche un jour pour le saisir. Le détail de chaque journée est dans l'onglet 📊 Mes heures.</div>
   </div>`;
 
   /* ---------- TABLEAU RÉCAP PAR MOIS (vs contrat 42h/sem) ---------- */
@@ -2189,15 +2199,35 @@ function viewHoraires(){
     const wp=w.split("-"); return `<div class="card"><h2>Semaine du ${wp[2]}/${wp[1]} <span style="margin-left:auto;font-size:13px">${fmtH(tot)} <span style="color:${diff>=0?'var(--pos)':'var(--neg)'};font-weight:700">(${diff>=0?'+':''}${fmtH(diff)})</span></span></h2>${rows}</div>`;
   }).join("");
 
-  return `<div class="pagehead">🕐 Horaires</div>
+  /* ---------- MON CONTRAT (sorti du formulaire : on le règle une fois) ---------- */
+  const contratHTML=`<div class="card"><h2>⚙️ Mon contrat</h2>
+    <div class="row2" style="align-items:end">
+      <div class="field" style="margin:0"><label>Contrat (h / semaine)</label><input type="number" min="0" step="0.5" value="${contrat}" onchange="setContrat(this.value)"></div>
+      <div class="field" style="margin:0"><label>Référence +/− par jour</label><input type="number" min="0" step="0.5" value="${prevu}" onchange="setPrevu(this.value)"></div></div>
+    <div class="muted" style="font-size:11.5px;margin-top:9px">Le contrat sert au « dû » de chaque mois et aux heures en plus de chaque semaine. La référence par jour sert au compteur +/−.</div>
+  </div>`;
+
+  /* ---------- SOUS-ONGLETS : une page par usage, au lieu de tout empiler ---------- */
+  const HT=[["semaine","🗓️","Semaine"],["heures","📊","Mes heures"],["conges","🏖️","Congés"],["releve","📄","Relevé"]];
+  const ht=HT.some(x=>x[0]===UI.horTab)?UI.horTab:"semaine";
+  const head=`<div class="pagehead no-print">🕐 Horaires</div>
+  <div class="soustabs no-print">${HT.map(([k,i,l])=>`<button class="${ht===k?'on':''}" onclick="setHorTab('${k}')"><span class="ic">${i}</span>${l}</button>`).join("")}</div>`;
+  if(ht==="releve") return head+viewReleve();
+  if(ht==="conges") return head+vacHTML;
+  if(ht==="heures") return head+tableauHTML
+    +(weeksHTML?`<div class="muted" style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:4px 4px 10px">Détail des ${weeks.length} dernières semaines</div>${weeksHTML}`
+      :'<div class="card"><div class="empty">Aucune journée enregistrée. Ajoute-en une dans l\'onglet 🗓️ Semaine.</div></div>')
+    +remplHTML+contratHTML;
+
+  /* ht === "semaine" : les compteurs, le semainier et la saisie d'une journée */
+  return `${head}
   <div class="grid kpis" style="margin-bottom:16px">
     <div class="kpi"><div class="lbl">Cette semaine</div><div class="val">${fmtH(weekTot)}</div></div>
     <div class="kpi"><div class="lbl">Ce mois</div><div class="val">${fmtH(monthTot)}</div></div>
     <div class="kpi"><div class="lbl">Compteur +/−</div><div class="val ${cum>=0?'pos':'neg'}">${cum>=0?'+':''}${fmtH(cum)}</div></div>
   </div>
-  <button class="btn ghost" style="margin-bottom:16px" onclick="ouvrirReleve()">📄 Relevé mensuel à imprimer (PDF) →</button>
   ${planningHTML}
-  <div class="card"><h2>${editing?"✏️ Modifier la journée":"➕ Ajouter une journée"}</h2>
+  <div class="card" id="horForm"><h2>${editing?"✏️ Modifier la journée":"➕ Ajouter une journée"}</h2>
     <div class="field"><label>Date</label><input id="hDate" type="date" value="${e.date||todayISO()}"></div>
     <div class="row2"><div class="field"><label>Début</label><input id="hDebut" type="time" value="${e.debut||'09:00'}"></div>
       <div class="field"><label>Fin</label><input id="hFin" type="time" value="${e.fin||'17:00'}"></div></div>
@@ -2211,15 +2241,12 @@ function viewHoraires(){
       <span>🔁 C'était un remplacement <span class="muted" style="font-weight:400;font-size:12px">(pour suivre tes heures en plus)</span></span></label>
     <button class="btn" onclick="saveHoraire()">${editing?"💾 Enregistrer":"✅ Ajouter"}</button>
     ${editing?`<button class="btn ghost" onclick="UI.horEdit=null;UI.horPause=false;render()" style="margin-top:8px">Annuler</button>`:""}
-    <div class="row2" style="margin-top:14px;align-items:end">
-      <div class="field" style="margin:0"><label>Contrat (h / semaine)</label><input type="number" min="0" step="0.5" value="${contrat}" onchange="setContrat(this.value)"></div>
-      <div class="field" style="margin:0"><label>Référence +/− par jour</label><input type="number" min="0" step="0.5" value="${prevu}" onchange="setPrevu(this.value)"></div></div>
-  </div>
-  ${vacHTML}
-  ${tableauHTML}
-  ${remplHTML}
-  ${weeksHTML||'<div class="card"><div class="empty">Aucune journée enregistrée. Ajoute-en une ci-dessus 👆</div></div>'}`;
+  </div>`;
 }
+function setHorTab(t){ UI.horTab=t; render(); window.scrollTo(0,0); }
+/* amène le formulaire « journée » à l'écran (il est sous le semainier, dans l'onglet Semaine) */
+function versFormHoraire(){ UI.horTab="semaine"; render();
+  const f=document.getElementById("horForm"); if(f) f.scrollIntoView({behavior:"smooth",block:"start"}); }
 function saveHoraire(){
   const date=document.getElementById("hDate").value, debut=document.getElementById("hDebut").value, fin=document.getElementById("hFin").value;
   if(!date||!debut||!fin){toast("Date, début et fin requis");return;}
@@ -2228,7 +2255,7 @@ function saveHoraire(){
   if(eid){ const i=DB.horaires.findIndex(x=>x.id===eid); if(i>=0)DB.horaires[i]=obj; } else DB.horaires.push(obj);
   UI.horEdit=null; UI.horPause=false; save(); toast(fmtH(hoursOf(obj))+" enregistré ✅"); render();
 }
-function horEdit(id){ UI.horEdit=(DB.horaires||[]).find(x=>x.id===id); UI.horPause=!!(UI.horEdit&&UI.horEdit.pause>0); render(); window.scrollTo(0,0); }
+function horEdit(id){ UI.horEdit=(DB.horaires||[]).find(x=>x.id===id); UI.horPause=!!(UI.horEdit&&UI.horEdit.pause>0); versFormHoraire(); }
 function delHoraire(id){ if(!confirm("Supprimer cette journée ?"))return; DB.horaires=DB.horaires.filter(x=>x.id!==id); save(); render(); }
 function setPrevu(v){ const n=parseFloat(String(v).replace(",",".")); if(isNaN(n))return; DB.heuresPrevuesJour=n; save(); render(); }
 function saveVac(){
@@ -2248,7 +2275,7 @@ function setCongesTaux(v){ DB.congesTaux=Math.max(0,parseFloat(String(v).replace
 function setContrat(v){ const n=parseFloat(String(v).replace(",",".")); if(isNaN(n))return; DB.contratHebdo=n; save(); render(); }
 /* semainier : navigation de semaine (±7j) + clic sur un jour pour le pré-saisir */
 function planMove(d){ const base=UI.planWeek||weekKey(todayISO()); const p=base.split("-").map(Number); const dt=new Date(p[0],p[1]-1,p[2]+d*7); UI.planWeek=weekKey(dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0")); render(); }
-function planAdd(iso){ UI.horEdit={date:iso}; UI.horPause=false; render(); window.scrollTo(0,0); }
+function planAdd(iso){ UI.horEdit={date:iso}; UI.horPause=false; versFormHoraire(); }
 
 /* ===================== RÉGLAGES ===================== */
 function viewReglages(){
@@ -2367,7 +2394,7 @@ window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.es
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
 window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setCongesDepart=setCongesDepart;window.setCongesDepuis=setCongesDepuis;window.setCongesTaux=setCongesTaux;
-window.ouvrirReleve=ouvrirReleve;window.setReleveMois=setReleveMois;window.setReleveMode=setReleveMode;window.setPeriode=setPeriode;window.resetPeriode=resetPeriode;window.setReleveNom=setReleveNom;window.setReleveEmployeur=setReleveEmployeur;window.imprimerReleve=imprimerReleve;
+window.ouvrirReleve=ouvrirReleve;window.setHorTab=setHorTab;window.setReleveMois=setReleveMois;window.setReleveMode=setReleveMode;window.setPeriode=setPeriode;window.resetPeriode=resetPeriode;window.setReleveNom=setReleveNom;window.setReleveEmployeur=setReleveEmployeur;window.imprimerReleve=imprimerReleve;
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
