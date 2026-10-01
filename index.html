@@ -108,6 +108,11 @@ body.calc-ouverte .toast{bottom:calc(min(370px,55vh) + var(--navh,0px) + 14px)}
 .acct .nm{font-size:12px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px}
 .acct .bal{font-size:19px;font-weight:800;margin-top:7px;letter-spacing:-.4px}
 .acct .tagm{font-size:10.5px;color:var(--muted);margin-top:2px}
+/* « Organiser mes comptes » (tableau de bord) : ordre, affiché / masqué, suppression */
+.orgrow{display:flex;align-items:center;gap:6px;padding:9px 2px;border-bottom:1px solid var(--line)}
+.orgbtn{background:var(--surface-2);border:1px solid var(--line);color:var(--text);border-radius:9px;width:34px;height:34px;
+  font-size:15px;cursor:pointer;flex:none;display:grid;place-items:center;padding:0}
+.orgbtn:disabled{opacity:.3;cursor:default}
 .hero{background:linear-gradient(135deg,var(--accent),#0e6b8a);color:#fff;border-radius:var(--radius);padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow)}
 .hero .l{font-size:12px;opacity:.85;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 .hero .v{font-size:30px;font-weight:800;margin-top:4px;letter-spacing:-1px}
@@ -254,7 +259,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v3 · 01/10</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v4 · 01/10</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -331,6 +336,7 @@ function ensureDefaults(){
   if(!DB||typeof DB!=="object") DB={};
   if(!Array.isArray(DB.transactions)) DB.transactions=seedTx();
   if(!Array.isArray(DB.accounts)||!DB.accounts.length) DB.accounts=defaultAccounts();
+  DB.accounts.forEach(a=>{ if(typeof a.tdb!=="boolean") a.tdb=true; });   /* tdb = affiché sur le tableau de bord (nouveau réglage : tout reste affiché) */
   if(!Array.isArray(DB.categories)||!DB.categories.length) DB.categories=defaultCategories();
   if(!Array.isArray(DB.future)) DB.future=[];
   if(!Array.isArray(DB.cashCounts)) DB.cashCounts=[];
@@ -380,7 +386,7 @@ const SB_KEY="sb_publishable_Bc6FUEQBIsF7ciMiREHJVw_N99uh1jp";
 let sb=null, SB_USER=null, AUTH={step:"email",email:""}, pushT=null, syncState="local";
 function initSb(){ try{ if(window.supabase&&SB_URL&&SB_KEY) sb=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"mb-auth"}}); }catch(e){ sb=null; } }
 function updateTop(){ const el=document.getElementById("topSub"); if(!el)return; const bal=computeBalances();
-  const dispo=eur0((bal.cc||0)+(bal.caisse||0)+(bal.portefeuille||0));
+  const dispo=eur0(disponible(bal));
   const tag = !sb? " · 🔒 hors-ligne" : !SB_USER? " · 🔒 hors-ligne" : syncState==="saving"? " · ⏳ sync…" : syncState==="error"? " · ⚠️ sync" : " · ☁️ synchronisé";
   el.textContent="Disponible : "+dispo+tag; }
 async function pullCloud(){
@@ -480,6 +486,10 @@ function isDepense(t){ return t.montant<0 && !isTransfer(t); }
 function isRevenu(t){ return t.type!=="transfer" && t.montant>0 && !isActivation(t); }
 function isLiquid(id){ const a=acct(id); return !!(a&&(a.type==="courant"||a.type==="cash")); }   /* compte courant, caisse, portefeuille */
 function isSavings(id){ const a=acct(id); return !!(a&&(a.type==="epargne"||a.type==="invest"||a.type==="crypto")); } /* livret A, assurance vie, projets, PEA, crypto */
+/* « Disponible » = l'argent utilisable tout de suite : tous les comptes courants actifs
+   (y compris ceux d'une autre banque) + les espèces (caisse, portefeuille) */
+function comptesDispo(){ return DB.accounts.filter(a=>a.active&&isLiquid(a.id)); }
+function disponible(bal){ return comptesDispo().reduce((s,a)=>s+(bal[a.id]||0),0); }
 function flowOf(m){
   const tx=txOfMonth(m);
   const rev=tx.filter(isRevenu).reduce((a,t)=>a+t.montant,0);
@@ -650,7 +660,7 @@ function renderNav(){
     +`<button class="${UI.tab==='reglages'?'active':''}" onclick="go('reglages')" style="margin-top:auto"><span class="ic">⚙️</span>Réglages</button>`;
   document.getElementById("bottomnav").innerHTML=NAV.map(([k,l,i,s])=>`<button class="${UI.tab===k?'active':''}" onclick="go('${k}')"><span class="ic">${i}</span>${s}</button>`).join("");
 }
-function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; UI.serieOpen=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
+function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
   const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
@@ -671,9 +681,10 @@ function monthSelector(){
 /* ===================== TABLEAU DE BORD ===================== */
 function viewDash(){
   const bal=computeBalances();
-  const dispo=(bal.cc||0)+(bal.caisse||0)+(bal.portefeuille||0);
+  const dispo=disponible(bal);
   const patrimoine=DB.accounts.filter(a=>a.active).reduce((a,x)=>a+(bal[x.id]||0),0);
-  const cards=DB.accounts.filter(a=>a.active).map(a=>{
+  const caches=DB.accounts.filter(a=>a.active&&a.tdb===false);   /* masqués du tableau de bord (toujours utilisables) */
+  const cards=DB.accounts.filter(a=>a.active&&a.tdb!==false).map(a=>{
     let v=eur(bal[a.id]||0), tag="";
     if(a.type==="crypto"||a.id==="assurancevie"){ v=eur((bal._inv&&bal._inv[a.id])||0); tag="montant investi"; }
     else if(a.type==="epargne") tag="épargne";
@@ -722,8 +733,10 @@ function viewDash(){
   return `
   <div class="pagehead">Bonjour 👋</div>
   <div class="hero"><div class="l">Solde disponible</div><div class="v">${eur(dispo)}</div>
-    <div class="x">Compte courant + caisse + portefeuille · Patrimoine total : ${eur0(patrimoine)}</div></div>
-  <div class="card"><h2>🏦 Mes comptes</h2><div class="grid accts">${cards}</div>
+    <div class="x">${comptesDispo().map(a=>escH(a.name)).join(" + ")||"—"} · Patrimoine total : ${eur0(patrimoine)}</div></div>
+  <div class="card"><h2>🏦 Mes comptes <button class="btn ghost sm" style="margin-left:auto;width:auto" onclick="orgComptes()">${UI.orgComptes?"✔️ Terminé":"✏️ Organiser"}</button></h2>
+    ${UI.orgComptes?organiserComptesHTML():`<div class="grid accts">${cards||'<div class="muted" style="font-size:12.5px">Aucun compte affiché. Clique ✏️ Organiser.</div>'}</div>
+    ${caches.length?`<div class="muted" style="font-size:11.5px;margin-top:9px">🚫 Masqué${caches.length>1?"s":""} : ${caches.map(a=>a.emoji+" "+escH(a.name)).join(", ")} — ✏️ Organiser pour ${caches.length>1?"les":"le"} réafficher.</div>`:""}`}
     <div class="muted" style="font-size:12px;margin-top:10px">💡 Première utilisation : recale chaque compte sur ton solde réel dans Réglages (1 clic par compte).</div>
     <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="go('rapport')">📋 Mon rapport mensuel</button><button class="btn ghost sm" onclick="go('objectifs')">🎯 Mes objectifs</button><button class="btn ghost sm" onclick="openCompteur()">🧮 Compter mes espèces</button><button class="btn ghost sm" onclick="go('reglages')">Recaler mes soldes →</button></div></div>
   ${caisseRappel}
@@ -741,6 +754,69 @@ function viewDash(){
   <div class="card"><h2>🔁 Transferts par compte ${UI.month==='all'?'':'· '+MONTHS[UI.month]}</h2>${transferRanking(UI.month)}
     <div class="muted" style="font-size:11.5px;margin-top:8px">Argent déplacé vers (+) ou depuis (−) tes comptes : caisse, portefeuille, livret A, crypto…</div></div>
   <div class="card"><h2>💬 Résumé <span class="tag">NARRATEUR</span></h2><div class="narr">${Narrateur.tell(UI.month)}</div></div>`;
+}
+/* ---------- Organiser mes comptes : ordre, affiché / masqué, suppression, ajout ---------- */
+const TYPES_COMPTE=[["courant","🏦","Compte courant"],["epargne","🐷","Épargne (livret…)"],["cash","💵","Espèces"],["invest","📈","Placement"],["crypto","🪙","Crypto"]];
+function typeCompte(t){ const x=TYPES_COMPTE.find(y=>y[0]===t); return x?x[2]:"Compte"; }
+function orgComptes(){ UI.orgComptes=!UI.orgComptes; render(); }
+function organiserComptesHTML(){
+  const n=DB.accounts.length;
+  const rows=DB.accounts.map((a,i)=>{ const vis=a.active&&a.tdb!==false;
+    return `<div class="orgrow">
+      <div style="flex:1;min-width:0;${vis?"":"opacity:.5"}"><div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.emoji} ${escH(a.name)}</div>
+        <div class="muted" style="font-size:11px">${typeCompte(a.type)} · ${vis?"affiché":"masqué"}</div></div>
+      <button class="orgbtn" title="Monter" onclick="moveAcct(${i},-1)" ${i===0?"disabled":""}>↑</button>
+      <button class="orgbtn" title="Descendre" onclick="moveAcct(${i},1)" ${i===n-1?"disabled":""}>↓</button>
+      <button class="orgbtn" title="${vis?"Masquer du tableau de bord":"Afficher sur le tableau de bord"}" onclick="toggleTdb(${i})">${vis?"👁️":"🚫"}</button>
+      <button class="orgbtn" title="Supprimer ce compte" onclick="delAcct(${i})">🗑️</button></div>`; }).join("");
+  return `<div class="muted" style="font-size:12px;margin-bottom:4px"><b>↑ ↓</b> l'ordre d'affichage · <b>👁️</b> afficher ou masquer (un compte masqué reste utilisable dans la saisie) · <b>🗑️</b> supprimer.</div>
+    ${rows}
+    <div style="background:var(--surface-2);border-radius:12px;padding:10px 12px;margin:12px 0;font-size:12px;line-height:1.55">💡 <b>PEA, assurance vie, crypto</b> : leur valeur bouge tout le temps, alors leur case n'affiche que <b>ce que tu y as versé</b>. Leur <b>vraie valeur</b> se note dans
+      <button class="btn ghost sm" style="display:inline;width:auto;padding:2px 8px" onclick="go('crypto')">💹 Suivi des placements</button>.
+      Masque-les ici (👁️) pour ne garder sur ton tableau de bord que l'argent stable : ils restent comptés dans ton patrimoine.</div>
+    <div style="border-top:1px solid var(--line);padding-top:12px">
+      <div style="font-weight:700;margin-bottom:8px">➕ Ajouter un compte <span class="muted" style="font-weight:400;font-size:12px">— par exemple dans une autre banque</span></div>
+      <div class="field"><label>Nom</label><input id="naNom" placeholder="Ex : Compte courant Boursorama"></div>
+      <div class="row2"><div class="field"><label>Type</label><select id="naType">${TYPES_COMPTE.map(([k,e,l])=>`<option value="${k}">${e} ${l}</option>`).join("")}</select></div>
+        <div class="field"><label>Solde actuel (€)</label><input id="naSolde" type="number" step="0.01" inputmode="decimal" placeholder="0,00"></div></div>
+      <div class="muted" style="font-size:11.5px;margin:-4px 0 10px">Un <b>compte courant</b> ou des <b>espèces</b> comptent dans ton « Disponible ».</div>
+      <button class="btn" onclick="ajouterCompte()">✅ Ajouter ce compte</button></div>`;
+}
+function moveAcct(i,d){ const j=i+d; if(j<0||j>=DB.accounts.length) return;
+  const t=DB.accounts[i]; DB.accounts[i]=DB.accounts[j]; DB.accounts[j]=t; save(); render(); }
+function toggleTdb(i){ const a=DB.accounts[i]; if(!a) return;
+  if(a.active&&a.tdb!==false) a.tdb=false; else { a.tdb=true; a.active=true; }   /* réafficher = aussi le réactiver */
+  save(); render(); }
+/* combien de fois un compte a servi : opérations, paiements à venir, comptages d'espèces, lignes de paye */
+function usagesCompte(id){
+  let n=0;
+  DB.transactions.forEach(t=>{
+    if(t.type==="transfer"){ if(t.from===id||t.to===id) n++; return; }
+    if(resolveAccount(t)===id||(isSavingsTransfer(t)&&savingsAccountOf(t)===id)) n++; });
+  n+=(DB.future||[]).filter(f=>f.compte===id||f.from===id||f.to===id).length;
+  n+=(DB.cashCounts||[]).filter(c=>c.acct===id).length;
+  n+=((DB.paye&&DB.paye.lines)||[]).filter(l=>l.acct===id).length;
+  return n;
+}
+function delAcct(i){
+  const a=DB.accounts[i]; if(!a) return;
+  if(a.id==="cc"){ toast("Le compte courant principal sert de base à tous les calculs : on peut le renommer (Réglages), pas le supprimer."); return; }
+  const n=usagesCompte(a.id);
+  if(n){   /* effacer un compte qui a servi fausserait les soldes : ses opérations retomberaient sur le compte courant */
+    if(confirm(`« ${a.name} » a déjà servi (${n} opération${n>1?"s":""} ou paiement${n>1?"s":""}).\nLe supprimer fausserait tes soldes.\n\nOK = le masquer du tableau de bord à la place (il reste utilisable dans la saisie et compté dans ton patrimoine).`)){
+      a.tdb=false; save(); render(); toast(a.name+" masqué 🚫"); }
+    return; }
+  const b=computeBalances()[a.id]||0;
+  if(!confirm(`Supprimer « ${a.name} » ?${b?`\nIl affiche encore ${eur(b)}, qui sortira de ton patrimoine.`:""}`)) return;
+  DB.accounts.splice(i,1); save(); render(); toast("Compte supprimé 🗑️");
+}
+function ajouterCompte(){
+  const nom=(document.getElementById("naNom").value||"").trim(); if(!nom){ toast("Donne un nom au compte"); return; }
+  const type=document.getElementById("naType").value, t=TYPES_COMPTE.find(x=>x[0]===type);
+  const solde=parseFloat(String(document.getElementById("naSolde").value).replace(",","."))||0;
+  /* pas encore d'opération sur ce compte : son solde de départ = son solde actuel */
+  DB.accounts.push({id:"acc"+Date.now().toString(36),name:nom,emoji:t?t[1]:"💳",type,opening:Math.round(solde*100)/100,active:true,tdb:true});
+  save(); render(); toast("« "+nom+" » ajouté ✅");
 }
 function futureLine(f,isOverdue){
   const isTr=f.type==="transfer", dep=f.montant<0;
@@ -1767,7 +1843,7 @@ function ouPartMonArgentHTML(m){
 function viewRapport(){
   const m = UI.month==="all" ? new Date().getMonth() : UI.month;
   const fl=flowOf(m), split=depByBesoin(m), bal=computeBalances();
-  const dispo=(bal.cc||0)+(bal.caisse||0)+(bal.portefeuille||0);
+  const dispo=disponible(bal);
   const epargneTot=DB.accounts.filter(a=>a.active&&isSavings(a.id)).reduce((s,a)=>s+(bal[a.id]||0),0);
   const patrimoine=DB.accounts.filter(a=>a.active).reduce((s,x)=>s+(bal[x.id]||0),0);
   const avg=avgMensuel(), avgRev=avgRevenu(), cf=chargesFixes(), dev=Devin.forecast(m);
@@ -2286,6 +2362,7 @@ function viewReglages(){
     <span class="muted" style="font-size:12.5px;min-width:96px;text-align:right">solde : <b style="color:var(--text)">${eur0(bal[a.id]||0)}</b></span>
     <input class="mini" type="number" step="0.01" placeholder="solde réel →" onchange="calibAcc(${i},this.value)" title="Saisis ton solde réel actuel pour recaler ce compte">
     <label class="switch"><input type="checkbox" ${a.active?'checked':''} onchange="setAcc(${i},'active',this.checked)"><span class="sl"></span></label>
+    <button class="del" title="Supprimer ce compte" onclick="delAcct(${i})">🗑️</button>
   </div>`).join("");
   const cats=DB.categories.map((c,i)=>`<div class="setrow">
     <input class="emoji" value="${c.emoji}" onchange="setCat(${i},'emoji',this.value)">
@@ -2304,7 +2381,7 @@ function viewReglages(){
   </div>`).join(""):`<div class="muted" style="font-size:12.5px">Ta liste est vide. Ajoute un libellé ci-dessous, ou depuis la Saisie avec le bouton ⭐.</div>`;
   return `<div class="pagehead">⚙️ Réglages</div>
   <div class="card"><h2>🏦 Comptes</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Pour recaler un compte sur la réalité : tape ton <b>solde réel actuel</b> dans la case de droite → le solde se recale et reste exact ensuite. Décoche pour masquer un compte (ex : PEA).</div>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Pour recaler un compte sur la réalité : tape ton <b>solde réel actuel</b> dans la case de droite → le solde se recale et reste exact ensuite. Décoche pour désactiver un compte (ex : PEA). L'ordre et ce qui s'affiche sur le tableau de bord se règlent avec <b>✏️ Organiser</b>, dans « Mes comptes » du tableau de bord.</div>
     ${acts}
     <div style="margin-top:12px"><button class="btn ghost sm" onclick="addAcct()">+ Ajouter un compte</button></div></div>
   <div class="card"><h2>🏷️ Catégories</h2>
@@ -2394,7 +2471,7 @@ window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.es
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
 window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setCongesDepart=setCongesDepart;window.setCongesDepuis=setCongesDepuis;window.setCongesTaux=setCongesTaux;
-window.ouvrirReleve=ouvrirReleve;window.setHorTab=setHorTab;window.setReleveMois=setReleveMois;window.setReleveMode=setReleveMode;window.setPeriode=setPeriode;window.resetPeriode=resetPeriode;window.setReleveNom=setReleveNom;window.setReleveEmployeur=setReleveEmployeur;window.imprimerReleve=imprimerReleve;
+window.ouvrirReleve=ouvrirReleve;window.setHorTab=setHorTab;window.orgComptes=orgComptes;window.moveAcct=moveAcct;window.toggleTdb=toggleTdb;window.delAcct=delAcct;window.ajouterCompte=ajouterCompte;window.setReleveMois=setReleveMois;window.setReleveMode=setReleveMode;window.setPeriode=setPeriode;window.resetPeriode=resetPeriode;window.setReleveNom=setReleveNom;window.setReleveEmployeur=setReleveEmployeur;window.imprimerReleve=imprimerReleve;
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
 window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
