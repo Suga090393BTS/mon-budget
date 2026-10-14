@@ -280,7 +280,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v10 · 14/10</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v11 · 14/10</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -401,6 +401,13 @@ function ensureDefaults(){
   DB.categories.forEach(c=>{ if(c.budgetAn!=null){ c.budget=Math.round(((+c.budget||0)+(+c.budgetAn||0)/12)*100)/100; delete c.budgetAn; } });
   /* migration : genre de chaque catégorie (dépense / paye / argent), deviné une fois — modifiable dans Réglages → Catégories */
   DB.categories.forEach(c=>{ if(GENRES[c.genre]) return; c.genre=devinerGenre(c); reporterPaye(c); });
+  /* migration : Argent et Remboursement ne font qu'UNE catégorie, « Argent » : ce qu'on te donne ou t'avance et ce que tu rends,
+     avec une sous-catégorie par personne. Les opérations, paiements à venir, libellés et personnes de Remboursement la rejoignent. Une seule fois. */
+  if(!DB.argentUni){ const nom=c=>sansAccent(c.name).trim();
+    const cibles=DB.categories.filter(c=>genreDe(c)==="argent"&&nom(c)==="argent");   /* la catégorie qui s'appelle exactement « Argent » */
+    if(cibles.length===1){ const dst=cibles[0];   /* sinon (aucune, ou deux) : on ne touche à rien et on réessaiera */
+      DB.categories.filter(c=>c!==dst&&genreDe(c)==="argent"&&/^\W*rembours/.test(nom(c))).forEach(c=>fusionnerDans(c,dst));
+      DB.argentUni=true; } }
   /* comptages d'espèces d'avant cette version : on retient la date du dernier « Caler » de chaque compte
      (les détails billets/pièces antérieurs sont considérés absorbés par ce comptage) */
   DB.accounts.forEach(a=>{ if(a.type==="cash"&&!a.cashCaleAt){ const last=(DB.cashCounts||[]).filter(c=>c.acct===a.id).map(c=>c.date||"").sort().pop();
@@ -2878,19 +2885,28 @@ function fusionCat(i,cible){ const src=DB.categories[i], dst=catObj(cible); UI.f
     +(gs!==gd?`\n⚠️ « ${src.name} » est ${GENRES[gs].emo} ${GENRES[gs].lbl} et « ${dst.name} » ${GENRES[gd].emo} ${GENRES[gd].lbl} : ses opérations compteront ${effet}.`:"")
     +(env?`\nSa limite de ${eur0(src.budget)}/mois s'ajoute à celle de « ${dst.name} ».`:"")
     +`\nLa catégorie « ${src.name} » disparaît.`)){ render(); return; }
-  const old=src.name;
+  const old=src.name; fusionnerDans(src,dst);
+  save(); render(); toast("🔀 « "+old+" » fusionnée dans « "+dst.name+" »"); }
+/* le cœur de la fusion, sans question : tout ce qui cite src passe dans dst (sous-catégories comprises), puis src disparaît */
+function fusionnerDans(src,dst){
+  const old=src.name, gs=genreDe(src), gd=genreDe(dst), env=gs==="depense"&&gd==="depense"&&src.budget>0;
   const subsSrc=(src.subs||[]).concat(DB.transactions.filter(t=>t.categorie===old&&t.sousCategorie).map(t=>t.sousCategorie)), dejaDst=(dst.subs||[]).slice();
   renommerRefs(old,dst.name);
   if(env) dst.budget=Math.round(((+dst.budget||0)+(+src.budget||0))*100)/100;
   dst.subs=dst.subs||[];
+  const pers=gd==="argent", meme=(a,b)=>pers?a.toLowerCase()===b.toLowerCase():a===b;   /* une personne : « paul » = « Paul » */
   subsSrc.concat(DB.transactions.filter(t=>t.categorie===dst.name&&t.sousCategorie).map(t=>t.sousCategorie))
-    .forEach(x=>{ if(x&&dst.subs.indexOf(x)<0) dst.subs.push(x); });
+    .forEach(x=>{ if(x&&!dst.subs.some(y=>meme(y,x))) dst.subs.push(x); });
+  if(pers){ const canon=x=>dst.subs.find(y=>meme(y,x))||x;   /* une personne = une seule écriture, partout */
+    DB.transactions.concat(DB.future||[]).forEach(t=>{ if(t.categorie===dst.name&&t.sousCategorie) t.sousCategorie=canon(t.sousCategorie); });
+    (DB.libelles||[]).forEach(l=>{ if(l.cat===dst.name&&l.sub) l.sub=canon(l.sub); });
+    Object.values(DB.trained||{}).forEach(v=>{ if(Array.isArray(v)&&v[0]===dst.name&&v[1]) v[1]=canon(v[1]); }); }
+  if(src.active) dst.active=true;   /* ce qu'on utilisait reste choisissable en Saisie */
   if(src.subsBesoin){ dst.subsBesoin=dst.subsBesoin||{}; Object.keys(src.subsBesoin).forEach(k=>{ if(!(k in dst.subsBesoin)) dst.subsBesoin[k]=src.subsBesoin[k]; }); }
   /* essentiel / envie : les autres sous-catégories venues de la source gardent le réglage de la source */
   if(gd==="depense"&&src.besoin!==dst.besoin){ dst.subsBesoin=dst.subsBesoin||{};
     subsSrc.forEach(x=>{ if(dejaDst.indexOf(x)<0&&!(x in dst.subsBesoin)) dst.subsBesoin[x]=!!src.besoin; }); }
-  DB.categories.splice(DB.categories.indexOf(src),1);
-  save(); render(); toast("🔀 « "+old+" » fusionnée dans « "+dst.name+" »"); }
+  DB.categories.splice(DB.categories.indexOf(src),1); }
 function setLib(i,f,v){ const l=DB.libelles[i]; if(!l)return;
   if(f==="txt"){ l.txt=v.trim()||l.txt; } else if(f==="cat"){ l.cat=v; l.sub=""; } else l[f]=v;
   save(); render(); }
