@@ -109,6 +109,9 @@ body.calc-ouverte .toast{bottom:calc(min(370px,55vh) + var(--navh,0px) + 14px)}
 .acct .bal{font-size:19px;font-weight:800;margin-top:7px;letter-spacing:-.4px}
 .acct .tagm{font-size:10.5px;color:var(--muted);margin-top:2px}
 .acct .bq{font-weight:700}
+.bqdot{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:middle;margin-left:2px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
+/* sélecteur de compte : un point de la couleur de la banque, ancré à droite du champ fermé (toujours visible, même sur téléphone où le texte est coupé) */
+.selbq{position:relative;display:block} .selbq>select{padding-right:46px!important;width:100%} .selbq .bqdot{position:absolute;right:30px;top:50%;transform:translateY(-50%);width:11px;height:11px;margin:0;pointer-events:none}
 /* « Organiser mes comptes » (tableau de bord) : ordre, affiché / masqué, suppression */
 .orgrow{display:flex;align-items:center;gap:6px;padding:9px 2px;border-bottom:1px solid var(--line)}
 .orgbtn{background:var(--surface-2);border:1px solid var(--line);color:var(--text);border-radius:9px;width:34px;height:34px;
@@ -173,8 +176,9 @@ body.calc-ouverte .toast{bottom:calc(min(370px,55vh) + var(--navh,0px) + 14px)}
 .tx .ava{width:40px;height:40px;border-radius:12px;flex-shrink:0;display:grid;place-items:center;font-size:17px;background:var(--surface-2)}
 .tx .info{flex:1;min-width:0}
 .tx .t1{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tx .t2{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tx .t2 .d{font-weight:700;color:var(--text);font-size:13px}
+.tx .t2{font-size:12px;color:var(--muted);line-height:1.4}   /* passe à la ligne sur téléphone : date, catégorie, compte et son point restent lisibles */
+.tx .t2 .d{font-weight:700;color:var(--text);font-size:13px;white-space:nowrap}
+@media(max-width:480px){ .tx{gap:8px;padding:10px 2px} .tx .ava{width:34px;height:34px;font-size:15px} .tx .amt{font-size:13.5px} .tx .del{padding:4px 2px;font-size:14px} }
 .tx .amt{font-weight:800;font-size:14.5px;white-space:nowrap}
 .tx .del{background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:4px 5px;opacity:.6}
 .tx .del:hover{opacity:1}
@@ -229,6 +233,7 @@ body.calc-ouverte .toast{bottom:calc(min(370px,55vh) + var(--navh,0px) + 14px)}
 .setrow input.emoji{width:54px;text-align:center}
 input.coul{width:44px;height:38px;padding:2px 3px;border-radius:9px;border:1px solid var(--line);background:none;cursor:pointer;flex-shrink:0}
 .setrow select.bqsel{flex:1;min-width:120px}
+.setrow select.gensel{flex:1;min-width:120px}
 .prefrow{display:flex;gap:9px;align-items:flex-start;padding:7px 0;font-size:13.5px;cursor:pointer}
 .prefrow input{width:auto;margin-top:3px}
 .switch{position:relative;width:44px;height:26px;flex-shrink:0}
@@ -275,7 +280,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v7 · 13/10</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v10 · 14/10</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -394,6 +399,8 @@ function ensureDefaults(){
   DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
   /* migration : ancienne double-saisie €/an → tout ramené en mensuel (÷12) dans c.budget */
   DB.categories.forEach(c=>{ if(c.budgetAn!=null){ c.budget=Math.round(((+c.budget||0)+(+c.budgetAn||0)/12)*100)/100; delete c.budgetAn; } });
+  /* migration : genre de chaque catégorie (dépense / paye / argent), deviné une fois — modifiable dans Réglages → Catégories */
+  DB.categories.forEach(c=>{ if(GENRES[c.genre]) return; c.genre=devinerGenre(c); reporterPaye(c); });
   /* comptages d'espèces d'avant cette version : on retient la date du dernier « Caler » de chaque compte
      (les détails billets/pièces antérieurs sont considérés absorbés par ce comptage) */
   DB.accounts.forEach(a=>{ if(a.type==="cash"&&!a.cashCaleAt){ const last=(DB.cashCounts||[]).filter(c=>c.acct===a.id).map(c=>c.date||"").sort().pop();
@@ -488,10 +495,29 @@ function uid(){ return "t"+Date.now()+Math.random().toString(36).slice(2,6); }
 function todayISO(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function txOfMonth(m){ return DB.transactions.filter(t=> m==="all"?true: monthOf(t.date)===m ); }
 function acct(id){ return DB.accounts.find(a=>a.id===id); }
-function acctName(id){ const a=acct(id); return a?a.emoji+" "+a.name:id; }
 function banque(id){ return (DB.banques||[]).find(b=>b.id===id); }
 function banqueDe(a){ return a&&a.banque?banque(a.banque):null; }
 function pref(k){ return (DB.prefs||{})[k]; }
+/* Point de couleur de la banque, à droite du nom du compte — partout, pour distinguer deux comptes au même nom
+   (« Compte de dépôt » LCL 🔵 / Revolut 🟣). Dans les listes déroulantes et les messages on ne peut pas dessiner :
+   on prend le rond emoji le plus proche de la couleur (rondCouleur). Ailleurs, un vrai point de la couleur exacte (bqPoint). */
+function rondCouleur(hex){
+  const m=/^#?([0-9a-f]{6})$/i.exec(String(hex||"").trim()); if(!m) return "⚪";
+  const n=parseInt(m[1],16), r=(n>>16&255)/255, g=(n>>8&255)/255, b=(n&255)/255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b), l=(mx+mn)/2, d=mx-mn, s=d?d/(1-Math.abs(2*l-1)):0;
+  let h=0; if(d){ if(mx===r) h=((g-b)/d+6)%6; else if(mx===g) h=(b-r)/d+2; else h=(r-g)/d+4; h=h*60; }
+  if(l<.14) return "⚫"; if(s<.2) return l>.6?"⚪":"⚫";
+  if(h<15||h>=335) return "🔴"; if(h<45) return l<.32?"🟤":"🟠"; if(h<68) return "🟡"; if(h<170) return "🟢"; if(h<255) return "🔵"; return "🟣";
+}
+function bqRond(a){ const b=pref("couleurBanque")?banqueDe(a):null; return b?" "+rondCouleur(b.couleur):""; }
+function bqPoint(a){ const b=pref("couleurBanque")?banqueDe(a):null; return b?` <span class="bqdot" style="background:${b.couleur}" title="${escH(b.nom)}"></span>`:""; }
+function acctTxt(a){ return a?a.emoji+" "+a.name+bqRond(a):""; }          /* texte brut : options, toasts, confirm */
+function acctName(id){ const a=acct(id); return a?acctTxt(a):id; }
+function acctHTML(id){ const a=acct(id); return a?a.emoji+" "+escH(a.name)+bqPoint(a):escH(id); }   /* HTML : point exact */
+/* enveloppe un <select> de comptes : le point de la banque du compte choisi reste visible à droite du champ fermé */
+function selBq(selectHTML,style){ return `<span class="selbq"${style?` style="${style}"`:""}>${selectHTML}<span class="bqdot" style="display:none"></span></span>`; }
+function majBqDots(){ document.querySelectorAll(".selbq").forEach(w=>{ const s=w.querySelector("select"), d=w.querySelector(".bqdot"); if(!s||!d) return;
+  const b=pref("couleurBanque")?banqueDe(acct(s.value)):null; d.style.display=b?"":"none"; if(b){ d.style.background=b.couleur; d.title=b.nom; } }); }
 /* ce que la case d'un compte affiche : le montant versé pour la crypto et l'assurance vie, le solde sinon */
 function soldeAffiche(a,bal){ return (a.type==="crypto"||a.id==="assurancevie")?((bal._inv&&bal._inv[a.id])||0):(bal[a.id]||0); }
 const JOURS_COURT=["dim.","lun.","mar.","mer.","jeu.","ven.","sam."];
@@ -521,8 +547,68 @@ function resolveAccount(t){
 }
 function isTransfer(t){ return t.type==="transfer" || isActivation(t) || isSavingsTransfer(t)
   || ["RETRAIT","VERSEMENT ESPÈCES","PROJET E","SECOURS"].includes(t.categorie) || t.moyen==="VI"; }
-function isDepense(t){ return t.montant<0 && !isTransfer(t); }
-function isRevenu(t){ return t.type!=="transfer" && t.montant>0 && !isActivation(t); }
+/* ---------- Genre d'une catégorie ----------
+   depense = une enveloppe du budget (une ENTRÉE dans cette catégorie = un remboursement qui l'allège) ;
+   paye    = ce que tu gagnes : c'est ce que tu as à dépenser ;
+   argent  = l'argent qu'on te donne ou qu'on t'avance, et ce que tu rends ou prêtes — sous-catégories = les personnes.
+   Ni la paye ni l'argent ne sont des enveloppes ; l'argent n'est ni un revenu ni une dépense. */
+const GENRES={depense:{emo:"🎯",lbl:"Dépense"},paye:{emo:"💶",lbl:"Paye"},argent:{emo:"🤝",lbl:"Argent"}};
+function genreDe(c){ return c&&GENRES[c.genre]?c.genre:"depense"; }
+/* le genre d'après le nom seul (paye / argent), sinon null */
+const _genreNom={};
+function genreParNom(name){ if(name in _genreNom) return _genreNom[name]; const n=sansAccent(name);
+  return _genreNom[name]= /\b(paye|paie|salaire)s?\b/.test(n)?"paye": (/\bargent\b/.test(n)||/^\W*rembours/.test(n))?"argent": null; }
+/* catégorie absente de la liste (ancien import : PAYE, AUTRUITS…, ou catégorie supprimée) : d'après son nom, sinon une dépense */
+const GENRE_ANCIEN={"AUTRUITS":"argent"};
+function catGenre(name){ if(!name) return null; const c=catObj(name); if(c) return genreDe(c);   /* null = sans catégorie */
+  return GENRE_ANCIEN[name]||genreParNom(name)||"depense"; }
+function isDepense(t){ return t.montant<0 && !isTransfer(t) && ["paye","argent"].indexOf(catGenre(t.categorie))<0; }
+/* une entrée dans une catégorie de dépense = un remboursement (ex : on te rend 20 € du resto) : il allège l'enveloppe */
+function isRemb(t){ return t.type!=="transfer" && t.montant>0 && !isTransfer(t) && catGenre(t.categorie)==="depense"; }
+/* revenu = une entrée de genre Paye, ou sans catégorie (jamais un virement, l'argent donné ni un remboursement) */
+function isRevenu(t){ return t.montant>0 && !isTransfer(t) && !isRemb(t) && catGenre(t.categorie)!=="argent"; }
+function isArgentTx(t){ return t.type!=="transfer" && !isTransfer(t) && catGenre(t.categorie)==="argent"; }
+/* ce qu'une opération pèse dans les dépenses : + la dépense, − le remboursement reçu */
+function pese(t){ return isDepense(t)||isRemb(t); }
+function depVal(t){ return isDepense(t)?Math.abs(t.montant):isRemb(t)?-t.montant:0; }
+/* dépenses nettes par catégorie puis sous-catégorie, JAMAIS négatives : un remboursement allège sa catégorie
+   (réparti sur ses sous-catégories) sans la faire passer sous 0 — cas d'un remboursement reçu le mois d'après la dépense */
+function depNettes(list){ const by={};
+  list.filter(pese).forEach(t=>{ const c=t.categorie||"Autres", s=t.sousCategorie||"", e=by[c]||(by[c]={}); e[s]=(e[s]||0)+depVal(t); });
+  const out={};
+  Object.keys(by).forEach(c=>{ const e=by[c], net=Object.values(e).reduce((a,v)=>a+v,0); if(net<0.005) return;
+    const pos=Object.values(e).reduce((a,v)=>a+Math.max(0,v),0), k=net/pos, subs={};
+    Object.keys(e).forEach(s=>{ if(e[s]>0) subs[s]=e[s]*k; });
+    out[c]={tot:net,subs}; });
+  return out; }
+function depTotal(list){ return Object.values(depNettes(list)).reduce((a,x)=>a+x.tot,0); }
+/* catégorie Argent : ce qui est entré (on te donne / on te rend) et sorti (tu donnes / tu rends) sur une liste d'opérations */
+function argentTotaux(list){ let recu=0,donne=0; list.filter(isArgentTx).forEach(t=>{ if(t.montant>0) recu+=t.montant; else donne+=-t.montant; });
+  const r=x=>Math.round(x*100)/100; return {recu:r(recu),donne:r(donne)}; }
+/* le solde avec chaque personne (sous-catégorie), depuis le début : + = tu as reçu plus que tu n'as rendu.
+   Même personne quelle que soit la catégorie Argent et la casse (« paul » = « Paul ») ; sans personne : rangé sous sa catégorie */
+function argentParPersonne(){ const by={};
+  DB.transactions.filter(isArgentTx).forEach(t=>{ const p=(t.sousCategorie||"").trim(), k=p?"p:"+p.toLowerCase():"c:"+(t.categorie||"");
+    const e=by[k]||(by[k]={nom:p,cat:p?"":(t.categorie||""),recu:0,donne:0});
+    if(t.montant>0) e.recu+=t.montant; else e.donne+=-t.montant; });
+  return Object.values(by).map(e=>({nom:e.nom,cat:e.cat,recu:Math.round(e.recu*100)/100,donne:Math.round(e.donne*100)/100,solde:Math.round((e.recu-e.donne)*100)/100}))
+    .sort((a,b)=>Math.abs(b.solde)-Math.abs(a.solde)||a.nom.localeCompare(b.nom)); }
+/* le SENS d'une opération, pour la liste des opérations (filtre Dépense / Entrée), quelle que soit sa catégorie */
+function estSortie(t){ return t.montant<0 && !isTransfer(t); }
+function estEntree(t){ return t.type!=="transfer" && t.montant>0 && !isActivation(t); }
+/* genre deviné une seule fois (migration) : d'après le nom ; la paye, JAMAIS d'après les opérations */
+function sansAccent(x){ return String(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase(); }
+function devinerGenre(c){
+  const g=genreParNom(c.name); if(g) return g;
+  if(c.budget>0) return "depense";   /* elle a une limite : c'est une enveloppe (ses entrées = des remboursements) */
+  let ent=0,sor=0; (DB.transactions||[]).forEach(t=>{ if(t.categorie!==c.name||isTransfer(t)) return; if(t.montant>0) ent+=t.montant; else sor-=t.montant; });
+  return ent>sor?"argent":"depense";   /* plus reçu que dépensé : de l'argent donné ou avancé, pas une enveloppe */
+}
+/* « Ma paye » vide ? la limite qu'on avait mise sur l'enveloppe Paye y passe (une enveloppe Paye n'a pas de sens) ;
+   on la garde de côté (budgetAvantPaye) pour la rendre si la catégorie redevient une dépense */
+function reporterPaye(c){ if(genreDe(c)!=="paye"||!(c.budget>0)) return false;
+  if(DB.aDepenser>0||Object.values(DB.payes||{}).some(v=>v>0)) return false;
+  DB.aDepenser=Math.round(c.budget*100)/100; c.budgetAvantPaye=DB.aDepenser; c.budget=0; return true; }
 function isLiquid(id){ const a=acct(id); return !!(a&&(a.type==="courant"||a.type==="cash")); }   /* compte courant, caisse, portefeuille */
 function isSavings(id){ const a=acct(id); return !!(a&&(a.type==="epargne"||a.type==="invest"||a.type==="crypto")); } /* livret A, assurance vie, projets, PEA, crypto */
 /* « Disponible » = l'argent utilisable tout de suite : tous les comptes courants actifs
@@ -532,11 +618,14 @@ function disponible(bal){ return comptesDispo().reduce((s,a)=>s+(bal[a.id]||0),0
 function flowOf(m){
   const tx=txOfMonth(m);
   const rev=tx.filter(isRevenu).reduce((a,t)=>a+t.montant,0);
-  const dep=tx.filter(isDepense).reduce((a,t)=>a+Math.abs(t.montant),0);
+  const dep=depTotal(tx);   /* net des remboursements reçus, jamais négatif par catégorie */
+  const rembAutres=dep-tx.filter(pese).reduce((a,t)=>a+depVal(t),0);   /* remboursements d'une dépense d'un autre mois */
+  /* l'argent donné / rendu n'est ni un revenu ni une dépense, mais il est bien arrivé (ou parti) sur les comptes du quotidien */
+  const argent=tx.filter(t=>isArgentTx(t)&&isLiquid(resolveAccount(t))).reduce((a,t)=>a+t.montant,0);
   let epargne=0;
   tx.filter(t=>t.type==="transfer").forEach(t=>{ const v=Math.abs(t.montant);
     if(isLiquid(t.from)&&isSavings(t.to)) epargne+=v; else if(isSavings(t.from)&&isLiquid(t.to)) epargne-=v; });
-  return {rev,dep,epargne,dispo:rev-dep-epargne};
+  return {rev,dep,epargne,argent,rembAutres,dispo:rev-dep-epargne+argent+rembAutres};
 }
 /* ---------- Rapport : besoin (essentiel) vs envie + train de vie ---------- */
 const BESOIN_DEFAUT={
@@ -551,10 +640,9 @@ function besoinOf(catName, sub){ const c=(DB.categories||[]).find(x=>x.name===ca
   if(c&&sub&&c.subsBesoin&&typeof c.subsBesoin[sub]==="boolean") return c.subsBesoin[sub];
   return catBesoin(catName); }
 function setSubBesoin(i, sub, v){ const c=DB.categories[i]; if(!c)return; if(!c.subsBesoin)c.subsBesoin={}; c.subsBesoin[sub]=!!v; save(); render(); }
-function depByBesoin(m){ let besoin=0,envie=0; const byCatB={},byCatE={};
-  txOfMonth(m).filter(isDepense).forEach(t=>{ const v=Math.abs(t.montant),c=t.categorie||"Autres",sub=t.sousCategorie||"";
-    const label = sub?c+" / "+sub : c;
-    if(besoinOf(c,sub)){besoin+=v;byCatB[label]=(byCatB[label]||0)+v;} else {envie+=v;byCatE[label]=(byCatE[label]||0)+v;} });
+function depByBesoin(m){ let besoin=0,envie=0; const byCatB={},byCatE={}, det=depNettes(txOfMonth(m));
+  Object.keys(det).forEach(c=>Object.keys(det[c].subs).forEach(sub=>{ const v=det[c].subs[sub], label=sub?c+" / "+sub:c;
+    if(besoinOf(c,sub)){besoin+=v;byCatB[label]=(byCatB[label]||0)+v;} else {envie+=v;byCatE[label]=(byCatE[label]||0)+v;} }));
   return {besoin,envie,total:besoin+envie,byCatB,byCatE}; }
 function monthsWithDep(){ const s=new Set(); DB.transactions.forEach(t=>{ if(isDepense(t)){const mo=monthOf(t.date); if(mo!=null)s.add(mo);} }); return [...s]; }
 function avgMensuel(){ const ms=monthsWithDep(); if(!ms.length)return{besoin:0,envie:0,total:0,n:0};
@@ -648,7 +736,7 @@ const Vigie = {
   scan(m){
     const out=[]; const refMonth = m==="all"? new Date().getMonth() : m;
     const tx=txOfMonth(refMonth);
-    const spent={}; tx.filter(t=>isDepense(t)&&t.sousCategorie).forEach(t=>{ spent[t.sousCategorie]=(spent[t.sousCategorie]||0)+Math.abs(t.montant); });
+    const spent={}; tx.filter(t=>pese(t)&&t.sousCategorie).forEach(t=>{ spent[t.sousCategorie]=(spent[t.sousCategorie]||0)+depVal(t); });
     const over=[],risk=[];
     Object.keys(spent).forEach(sc=>{ const b=subBudget(sc); if(b>0){ const r=spent[sc]/b; if(r>1)over.push([sc,spent[sc],b,r]); else if(r>=.8)risk.push([sc,spent[sc],b,r]); }});
     over.sort((a,b)=>b[3]-a[3]); risk.sort((a,b)=>b[3]-a[3]);
@@ -669,15 +757,15 @@ const Narrateur = {
     const refMonth = m==="all"? new Date().getMonth() : m;
     const tx=txOfMonth(refMonth); const dep=tx.filter(isDepense); const fl=flowOf(refMonth);
     if(!tx.length) return `Aucune écriture pour <span class="hl">${MONTHS[refMonth]}</span>. Ajoute ta première opération depuis l'onglet Saisie !`;
-    const byCat={}; dep.forEach(t=>{const c=t.categorie||"Autres";byCat[c]=(byCat[c]||0)+Math.abs(t.montant);});
-    const top=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,3);
-    let s=`En <span class="hl">${MONTHS[refMonth]}</span>, tu as dépensé <span class="hl">${eur(fl.dep)}</span> sur <b>${dep.length}</b> opérations`;
+    const top=Object.entries(depNettes(tx)).map(([c,x])=>[c,x.tot]).sort((a,b)=>b[1]-a[1]).slice(0,3);
+    let s=fl.dep>0.005?`En <span class="hl">${MONTHS[refMonth]}</span>, tu as dépensé <span class="hl">${eur(fl.dep)}</span> sur <b>${dep.length}</b> opération${dep.length>1?"s":""}`
+      :`En <span class="hl">${MONTHS[refMonth]}</span>, tu n'as rien dépensé`;
     s+= fl.rev>0? ` pour <span class="hl">${eur(fl.rev)}</span> de revenus. `:`. `;
     if(fl.epargne>0) s+=`Tu as mis <span class="hl">${eur(fl.epargne)}</span> de côté (épargne/placements). `;
-    if(fl.rev>0){ s+= fl.dispo>=0?`Au final, il te reste <b class="pos">${eur(fl.dispo)}</b> sur tes comptes du quotidien 👏. `:`Au final, tu es <b class="neg">en négatif de ${eur(-fl.dispo)}</b> sur tes comptes du quotidien. `; }
-    if(top.length){ s+=`Ton plus gros poste : <span class="hl">${top[0][0]}</span> (${eur(top[0][1])}`; if(top[1])s+=`, puis ${top[1][0]}`; s+=`). `; }
+    if(fl.rev>0||fl.argent>0){ s+= fl.dispo>=0?`Au final, il te reste <b class="pos">${eur(fl.dispo)}</b> sur tes comptes du quotidien 👏. `:`Au final, tu es <b class="neg">en négatif de ${eur(-fl.dispo)}</b> sur tes comptes du quotidien. `; }
+    if(top.length){ s+=`Ton plus gros poste : <span class="hl">${escH(top[0][0])}</span> (${eur(top[0][1])}`; if(top[1])s+=`, puis ${escH(top[1][0])}`; s+=`). `; }
     const big=dep.slice().sort((a,b)=>a.montant-b.montant)[0];
-    if(big) s+=`Plus grosse sortie : <b>${eur(Math.abs(big.montant))}</b> (${big.note||big.sousCategorie}).`;
+    if(big) s+=`Plus grosse sortie : <b>${eur(Math.abs(big.montant))}</b> (${escH(big.note||big.sousCategorie||big.categorie||"")}).`;
     return s;
   }
 };
@@ -685,11 +773,11 @@ const Devin = {
   forecast(m){
     const now=new Date(); const refMonth=m==="all"?now.getMonth():m; const year=2026;
     const dim=new Date(year,refMonth+1,0).getDate();
-    const tx=txOfMonth(refMonth).filter(isDepense); const spent=tx.reduce((a,t)=>a+Math.abs(t.montant),0);
+    const spent=depTotal(txOfMonth(refMonth));
     let elapsed=(refMonth===now.getMonth()&&now.getFullYear()===year)?now.getDate():dim; elapsed=Math.max(elapsed,1);
     const projMonth=spent/elapsed*dim;
     const totalBudget=APPDATA.reference.sousCategories.filter(s=>s.types.includes("DpE")||s.types.includes("DpI")||s.types.includes("EpC")).reduce((a,s)=>a+s.budget,0);
-    const allDep=DB.transactions.filter(isDepense); const totYear=allDep.reduce((a,t)=>a+Math.abs(t.montant),0);
+    const totYear=depTotal(DB.transactions);
     const monthsElapsed=now.getFullYear()===year?(now.getMonth()+now.getDate()/dim):12;
     const projYear=monthsElapsed>0?totYear/monthsElapsed*12:totYear;
     return {refMonth,dim,elapsed,spent,projMonth,totalBudget,totYear,projYear,monthsElapsed};
@@ -717,17 +805,18 @@ function renderNav(){
     +`<button class="${UI.tab==='reglages'?'active':''}" onclick="go('reglages')" style="margin-top:auto"><span class="ic">⚙️</span>Réglages</button>`;
   document.getElementById("bottomnav").innerHTML=NAV.map(([k,l,i,s])=>`<button class="${UI.tab===k?'active':''}" onclick="go('${k}')"><span class="ic">${i}</span>${s}</button>`).join("");
 }
-function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; UI.espRecompter=false; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
+function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; UI.espRecompter=false; UI.fusionCat=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
   const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
   m.innerHTML=v();
   updateTop();
   if(UI.tab==="dash") drawBars("barsDash");
-  if(UI.tab==="saisie"){ bindSaisie(); espSync(); espCalc(true); }
+  if(UI.tab==="saisie"){ bindSaisie(); espSync(); espCalc(true); catHint(); }
   if(UI.tab==="tx") renderTxList();
   if(UI.tab==="compteur") recalcCaisse();
   if(UI.tab==="ia") drawNet("netBars");
+  majBqDots();
 }
 function monthSelector(){
   let o=`<option value="all">Toute l'année</option>`;
@@ -749,7 +838,7 @@ function viewDash(){
     else if(a.type==="courant") tag="compte courant";
     else tag="placement";
     const b=pref("couleurBanque")?banqueDe(a):null;   /* couleur de la banque (LCL, Revolut, SwissBorg…) ; les espèces sont à part */
-    return `<div class="acct" style="${b?`border-left:5px solid ${b.couleur}`:""}"><div class="nm">${a.emoji} ${escH(a.name)}</div><div class="bal">${v}</div><div class="tagm">${tag}${b?` · <span class="bq" style="color:${b.couleur}">${escH(b.nom)}</span>`:""}</div></div>`;
+    return `<div class="acct" style="${b?`border-left:5px solid ${b.couleur}`:""}"><div class="nm">${a.emoji} ${escH(a.name)}${bqPoint(a)}</div><div class="bal">${v}</div><div class="tagm">${tag}${b?` · <span class="bq" style="color:${b.couleur}">${escH(b.nom)}</span>`:""}</div></div>`;
   }).join("");
   /* total par banque (tous les comptes actifs, même masqués) */
   let parBanque="";
@@ -794,16 +883,17 @@ function viewDash(){
   // month KPIs
   const tx=txOfMonth(UI.month);
   const ent=tx.filter(isRevenu).reduce((a,t)=>a+t.montant,0);
-  const dep=tx.filter(isDepense).reduce((a,t)=>a+Math.abs(t.montant),0);
+  const dep=depTotal(tx);   /* net des remboursements reçus */
+  const ag=argentTotaux(tx);
   const lab=UI.month==="all"?"sur l'année":"en "+MONTHS[UI.month];
   return `
   <div class="pagehead">Bonjour 👋</div>
   <div class="hero"><div class="l">Solde disponible</div><div class="v">${eur(dispo)}</div>
-    <div class="x">${comptesDispo().map(a=>escH(a.name)).join(" + ")||"—"} · Patrimoine total : ${eur0(patrimoine)}</div></div>
+    <div class="x">${comptesDispo().map(a=>escH(a.name)+bqPoint(a)).join(" + ")||"—"} · Patrimoine total : ${eur0(patrimoine)}</div></div>
   <div class="card"><h2>🏦 Mes comptes <button class="btn ghost sm" style="margin-left:auto;width:auto" onclick="orgComptes()">${UI.orgComptes?"✔️ Terminé":"✏️ Organiser"}</button></h2>
     ${UI.orgComptes?organiserComptesHTML():`<div class="grid accts">${cards||'<div class="muted" style="font-size:12.5px">Aucun compte affiché. Clique ✏️ Organiser.</div>'}</div>
     ${parBanque}
-    ${caches.length?`<div class="muted" style="font-size:11.5px;margin-top:9px">🚫 Masqué${caches.length>1?"s":""} : ${caches.map(a=>a.emoji+" "+escH(a.name)).join(", ")} — ✏️ Organiser pour ${caches.length>1?"les":"le"} réafficher.</div>`:""}`}
+    ${caches.length?`<div class="muted" style="font-size:11.5px;margin-top:9px">🚫 Masqué${caches.length>1?"s":""} : ${caches.map(a=>a.emoji+" "+escH(a.name)+bqPoint(a)).join(", ")} — ✏️ Organiser pour ${caches.length>1?"les":"le"} réafficher.</div>`:""}`}
     <div class="muted" style="font-size:12px;margin-top:10px">💡 Première utilisation : recale chaque compte sur ton solde réel dans Réglages (1 clic par compte).</div>
     <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="go('rapport')">📋 Mon rapport mensuel</button><button class="btn ghost sm" onclick="go('objectifs')">🎯 Mes objectifs</button><button class="btn ghost sm" onclick="openCompteur()">🧮 Compter mes espèces</button><button class="btn ghost sm" onclick="go('reglages')">Recaler mes soldes →</button></div></div>
   ${caisseRappel}
@@ -816,6 +906,7 @@ function viewDash(){
     <div class="kpi"><div class="lbl">Dépenses</div><div class="val neg">${eur0(dep)}</div></div>
     <div class="kpi"><div class="lbl">Solde ${lab}</div><div class="val ${ent-dep>=0?'pos':'neg'}">${eur0(ent-dep)}</div></div>
   </div>
+  ${(ag.recu||ag.donne)?`<div class="muted" style="font-size:12px;margin:-8px 0 16px">🤝 À part, catégorie Argent : <b class="pos">+${eur0(ag.recu)}</b> reçus · <b class="neg">−${eur0(ag.donne)}</b> donnés ou rendus — ni revenu, ni dépense.</div>`:""}
   <div class="card"><h2>📈 Dépenses par mois</h2><div id="barsDash" class="chartwrap"></div></div>
   <div class="card"><h2>🏷️ Dépenses par catégorie ${UI.month==='all'?'':'· '+MONTHS[UI.month]}</h2>${catRanking(UI.month)}</div>
   <div class="card"><h2>🔁 Transferts par compte ${UI.month==='all'?'':'· '+MONTHS[UI.month]}</h2>${transferRanking(UI.month)}
@@ -830,7 +921,7 @@ function organiserComptesHTML(){
   const n=DB.accounts.length;
   const rows=DB.accounts.map((a,i)=>{ const vis=a.active&&a.tdb!==false, b=banqueDe(a);
     return `<div class="orgrow" style="${b?`border-left:4px solid ${b.couleur};padding-left:8px`:""}">
-      <div style="flex:1;min-width:0;${vis?"":"opacity:.5"}"><div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.emoji} ${escH(a.name)}</div>
+      <div style="flex:1;min-width:0;${vis?"":"opacity:.5"}"><div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.emoji} ${escH(a.name)}${bqPoint(a)}</div>
         <div class="muted" style="font-size:11px">${typeCompte(a.type)}${b?` · <span style="color:${b.couleur};font-weight:700">${escH(b.nom)}</span>`:""} · ${vis?"affiché":"masqué"}</div></div>
       <button class="orgbtn" title="Monter" onclick="moveAcct(${i},-1)" ${i===0?"disabled":""}>↑</button>
       <button class="orgbtn" title="Descendre" onclick="moveAcct(${i},1)" ${i===n-1?"disabled":""}>↓</button>
@@ -872,11 +963,11 @@ function delAcct(i){
   if(a.id==="cc"){ toast("Le compte courant principal sert de base à tous les calculs : on peut le renommer (Réglages), pas le supprimer."); return; }
   const n=usagesCompte(a.id);
   if(n){   /* effacer un compte qui a servi fausserait les soldes : ses opérations retomberaient sur le compte courant */
-    if(confirm(`« ${a.name} » a déjà servi (${n} opération${n>1?"s":""} ou paiement${n>1?"s":""}).\nLe supprimer fausserait tes soldes.\n\nOK = le masquer du tableau de bord à la place (il reste utilisable dans la saisie et compté dans ton patrimoine).`)){
-      a.tdb=false; save(); render(); toast(a.name+" masqué 🚫"); }
+    if(confirm(`« ${acctTxt(a)} » a déjà servi (${n} opération${n>1?"s":""} ou paiement${n>1?"s":""}).\nLe supprimer fausserait tes soldes.\n\nOK = le masquer du tableau de bord à la place (il reste utilisable dans la saisie et compté dans ton patrimoine).`)){
+      a.tdb=false; save(); render(); toast(acctTxt(a)+" masqué 🚫"); }
     return; }
   const b=computeBalances()[a.id]||0;
-  if(!confirm(`Supprimer « ${a.name} » ?${b?`\nIl affiche encore ${eur(b)}, qui sortira de ton patrimoine.`:""}`)) return;
+  if(!confirm(`Supprimer « ${acctTxt(a)} » ?${b?`\nIl affiche encore ${eur(b)}, qui sortira de ton patrimoine.`:""}`)) return;
   DB.accounts.splice(i,1); save(); render(); toast("Compte supprimé 🗑️");
 }
 function ajouterCompte(){
@@ -890,7 +981,7 @@ function ajouterCompte(){
 }
 function futureLine(f,isOverdue){
   const isTr=f.type==="transfer", dep=f.montant<0;
-  const sub=isTr?`${acctName(f.from)} → ${acctName(f.to)}`:`${f.categorie||''} · ${acctName(f.compte)}`;
+  const sub=isTr?`${acctHTML(f.from)} → ${acctHTML(f.to)}`:`${f.categorie||''} · ${acctHTML(f.compte)}`;
   /* ✅ Payé directement depuis le tableau de bord (réglable dans Réglages → Affichage) : on y revient ensuite */
   const payer=pref("tdbPayer")?`<button class="btn sm" style="width:auto;padding:7px 10px;flex-shrink:0" title="Marquer payé : crée l'opération" onclick="futurePay('${f.id}','dash')">✅ Payé</button>`:"";
   return `<div class="insight soon"><div class="em">${isOverdue?'⏰':'📌'}</div>
@@ -899,12 +990,10 @@ function futureLine(f,isOverdue){
     <div class="soonr"><div class="amt ${isTr?'':(dep?'neg':'pos')}" style="font-weight:800">${isTr?'⇄ ':(dep?'':'+')}${eur(f.montant)}</div>${payer}</div></div>`;
 }
 function catRanking(period){
-  const tx=txOfMonth(period).filter(isDepense);
-  const by={}; tx.forEach(t=>{const c=t.categorie||"Autres"; by[c]=(by[c]||0)+Math.abs(t.montant);});
-  const rows=Object.entries(by).sort((a,b)=>b[1]-a[1]); if(!rows.length) return `<div class="empty">Aucune dépense sur cette période.</div>`;
+  const rows=Object.entries(depNettes(txOfMonth(period))).map(([c,x])=>[c,x.tot]).sort((a,b)=>b[1]-a[1]); if(!rows.length) return `<div class="empty">Aucune dépense sur cette période.</div>`;
   const max=rows[0][1], total=rows.reduce((a,r)=>a+r[1],0);
   return `<div class="rank">`+rows.map((r,i)=>`<div class="rb">
-    <div class="top"><span>${catEmoji(r[0])} <b>${r[0]}</b></span><span><b>${eur0(r[1])}</b> <span class="muted">(${Math.round(r[1]/total*100)}%)</span></span></div>
+    <div class="top"><span>${escH(catEmoji(r[0]))} <b>${escH(r[0])}</b></span><span><b>${eur0(r[1])}</b> <span class="muted">(${Math.round(r[1]/total*100)}%)</span></span></div>
     <div class="track"><div class="fill" style="width:${Math.max(r[1]/max*100,2)}%;background:${PALETTE[i%PALETTE.length]}"></div></div>
   </div>`).join("")+`</div>`;
 }
@@ -921,14 +1010,15 @@ function transferRanking(period){
   const max=Math.max(...rows.map(r=>Math.abs(r[1])));
   return `<div class="rank">`+rows.map(r=>{ const a=acct(r[0]); const name=a?a.name:r[0], emo=a?a.emoji:'⇄', v=r[1], pos=v>=0;
     return `<div class="rb">
-    <div class="top"><span>${emo} <b>${name}</b></span><span><b style="color:${pos?'var(--pos)':'var(--neg)'}">${pos?'+':'−'}${eur0(Math.abs(v))}</b></span></div>
+    <div class="top"><span>${emo} <b>${escH(name)}</b>${a?bqPoint(a):""}</span><span><b style="color:${pos?'var(--pos)':'var(--neg)'}">${pos?'+':'−'}${eur0(Math.abs(v))}</b></span></div>
     <div class="track"><div class="fill" style="width:${Math.max(Math.abs(v)/max*100,2)}%;background:${pos?'var(--accent)':'var(--neg)'}"></div></div>
   </div>`;}).join("")+`</div>`;
 }
 function drawBars(id){
   const el=document.getElementById(id); if(!el) return;
-  const mt=Array(12).fill(0);
-  DB.transactions.filter(isDepense).forEach(t=>{const mo=monthOf(t.date); if(mo!=null)mt[mo]+=Math.abs(t.montant);});
+  const parMois=Array.from({length:12},()=>[]);
+  DB.transactions.forEach(t=>{const mo=monthOf(t.date); if(mo!=null)parMois[mo].push(t);});
+  const mt=parMois.map(depTotal);
   const max=Math.max(...mt,1), W=Math.max(560,12*46),H=180,base=150,gap=46,bw=26;
   let bars="";
   mt.forEach((v,i)=>{const h=v/max*120,x=20+i*gap,cur=(UI.month===i);
@@ -951,10 +1041,30 @@ function drawNet(id){
 }
 
 /* ===================== SAISIE ===================== */
-function catOptions(sel){ return `<option value="">— Catégorie —</option>`+activeCats().map(c=>`<option ${sel===c.name?'selected':''}>${c.name}</option>`).join(""); }
-function subOptions(cat,sel){ return `<option value="">— Sous-catégorie —</option>`+subsOf(cat).map(s=>`<option ${sel===s?'selected':''}>${s}</option>`).join(""); }
-function moyenOptions(sel){ return APPDATA.reference.moyens.map(m=>`<option value="${m.code}" ${sel===m.code?'selected':''}>${m.code} · ${m.label}</option>`).join(""); }
-function acctOptions(sel){ return DB.accounts.filter(a=>a.active).map(a=>`<option value="${a.id}" ${sel===a.id?'selected':''}>${a.emoji} ${a.name}</option>`).join(""); }
+/* catégories rangées par genre ; en Saisie, selon le sens :
+   Dépense → les enveloppes + Argent (tu donnes / tu rends) ; Entrée → Paye + Argent (on te donne / on te rend) + les enveloppes (= un remboursement) */
+function catOptions(sel,type){
+  const grp=g=>activeCats().filter(c=>genreDe(c)===g);
+  const opt=c=>`<option value="${escH(c.name)}" ${sel===c.name?'selected':''}>${escH(c.name)}</option>`;
+  const order= type==="dep"?[["🎯 Enveloppes","depense"],["🤝 Argent — tu donnes ou tu rends","argent"]]
+    : type==="ent"?[["💶 Paye","paye"],["🤝 Argent — on te donne ou on te rend","argent"],["↩️ Remboursement d'une enveloppe","depense"]]
+    : [["🎯 Enveloppes","depense"],["💶 Paye","paye"],["🤝 Argent","argent"]];
+  let html=`<option value="">— Catégorie —</option>`+order.map(([l,g])=>{ const L=grp(g); return L.length?`<optgroup label="${l}">${L.map(opt).join("")}</optgroup>`:""; }).join("");
+  if(sel&&!order.some(([l,g])=>grp(g).some(c=>c.name===sel))) html+=`<option value="${escH(sel)}" selected>${escH(sel)}</option>`;   /* catégorie masquée ou ancienne : on la garde */
+  return html;
+}
+/* ajout=true (Saisie) : pour une catégorie Argent, on peut créer une personne à la volée */
+function subOptions(cat,sel,ajout){
+  const L=subsOf(cat)||[], argent=catGenre(cat)==="argent";
+  let html=`<option value="">${argent?"— Personne —":"— Sous-catégorie —"}</option>`+L.map(s=>`<option value="${escH(s)}" ${sel===s?'selected':''}>${escH(s)}</option>`).join("");
+  if(sel&&L.indexOf(sel)<0) html+=`<option value="${escH(sel)}" selected>${escH(sel)}</option>`;   /* sous-catégorie qui n'est plus dans la liste : on la garde */
+  if(ajout&&argent) html+=`<option value="__new__">➕ Nouvelle personne…</option>`;
+  return html;
+}
+function moyenOptions(sel){ const L=APPDATA.reference.moyens;
+  return L.map(m=>`<option value="${m.code}" ${sel===m.code?'selected':''}>${m.code} · ${m.label}</option>`).join("")
+    +(sel&&!L.some(m=>m.code===sel)?`<option value="${escH(sel)}" selected>${escH(sel)} · ancien code</option>`:""); }   /* ex : VI (virement interne) : on le garde, sinon l'opération changerait de nature */
+function acctOptions(sel){ return DB.accounts.filter(a=>a.active).map(a=>`<option value="${a.id}" ${sel===a.id?'selected':''}>${acctTxt(a)}</option>`).join(""); }
 function viewSaisie(){
   const e=UI.edit||{};
   const t=UI.type;
@@ -966,8 +1076,8 @@ function viewSaisie(){
   if(t==="tr"){
     body=common+`
       <div class="row2">
-        <div class="field"><label>Du compte</label><select id="fFrom" onchange="espSync()">${acctOptions(e.from||'cc')}</select></div>
-        <div class="field"><label>Vers le compte</label><select id="fTo" onchange="espSync()">${acctOptions(e.to||'caisse')}</select></div></div>
+        <div class="field"><label>Du compte</label>${selBq(`<select id="fFrom" onchange="espSync()">${acctOptions(e.from||'cc')}</select>`)}</div>
+        <div class="field"><label>Vers le compte</label>${selBq(`<select id="fTo" onchange="espSync()">${acctOptions(e.to||'caisse')}</select>`)}</div></div>
       ${esp}
       <div class="field libwrap"><label>Libellé (facultatif)</label><input id="fNote" autocomplete="off" placeholder="Ex : Retrait DAB, virement épargne…" value="${(e.note||'').replace(/"/g,'&quot;')}">
         <div class="libdrop" id="libDrop"></div></div>
@@ -975,7 +1085,7 @@ function viewSaisie(){
   } else {
     /* à la modification, le compte réel de l'opération (les anciennes lignes n'ont pas de champ compte : resolveAccount() le déduit) */
     const compteSel=e.id?resolveAccount(e):(e.compte||"cc");
-    const moyenSel=APPDATA.reference.moyens.some(m=>m.code===e.moyen)?e.moyen:(isCashAcct(compteSel)?"ES":(t==='dep'?'CB':'VIR'));
+    const moyenSel=(e.moyen&&(e.id||APPDATA.reference.moyens.some(m=>m.code===e.moyen)))?e.moyen:(isCashAcct(compteSel)?"ES":(t==='dep'?'CB':'VIR'));
     body=common+`
       <div class="field libwrap"><label>Libellé / commerçant</label>
         <input id="fNote" autocomplete="off" placeholder="Ex : Esso, Amazon, Carrefour…" value="${(e.note||'').replace(/"/g,'&quot;')}">
@@ -983,10 +1093,11 @@ function viewSaisie(){
       <div id="libStar"></div>
       <div class="sugg" id="sugg"></div>
       <div class="row2">
-        <div class="field"><label>Catégorie</label><select id="fCat" onchange="onCatChange()">${catOptions(e.categorie)}</select></div>
-        <div class="field"><label>Sous-catégorie</label><select id="fSub">${subOptions(e.categorie,e.sousCategorie)}</select></div></div>
+        <div class="field"><label>Catégorie</label><select id="fCat" onchange="onCatChange()">${catOptions(e.categorie,t)}</select></div>
+        <div class="field"><label id="fSubLbl">${catGenre(e.categorie)==="argent"?"Personne":"Sous-catégorie"}</label><select id="fSub" onchange="onSubChange()">${subOptions(e.categorie,e.sousCategorie,true)}</select></div></div>
+      <div id="catHint" class="muted" style="font-size:12px;margin:-6px 0 12px;display:none"></div>
       <div class="row2">
-        <div class="field"><label>Compte</label><select id="fCompte" onchange="onCompteChange()">${acctOptions(compteSel)}</select></div>
+        <div class="field"><label>Compte</label>${selBq(`<select id="fCompte" onchange="onCompteChange()">${acctOptions(compteSel)}</select>`)}</div>
         <div class="field"><label>Moyen de paiement</label><select id="fMoyen">${moyenOptions(moyenSel)}</select></div></div>
       ${esp}
       <div class="field"><label>Observation (facultatif — n'apparaît pas dans la liste)</label><textarea id="fObs" rows="2" placeholder="Une note perso pour t'en souvenir…">${(e.observation||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea></div>`;
@@ -1012,13 +1123,43 @@ function setType(t){
     montant: g('fMontant')?(Math.abs(parseFloat(g('fMontant').replace(',','.')))||undefined):(cur.montant?Math.abs(cur.montant):undefined) };
   if(g('fObs')!==undefined) draft.observation=g('fObs'); else if(cur.observation) draft.observation=cur.observation;
   if(g('fCat')!==undefined){ draft.categorie=g('fCat'); draft.sousCategorie=g('fSub'); draft.compte=g('fCompte'); draft.moyen=g('fMoyen'); }
+  if(draft.sousCategorie==="__new__") draft.sousCategorie="";
+  if(t==='dep'&&catGenre(draft.categorie)==='paye'){ const o=cur.id&&DB.transactions.find(x=>x.id===cur.id);
+    if(!(o&&o.categorie===draft.categorie&&o.montant<0)){ draft.categorie=""; draft.sousCategorie=""; } }   /* une dépense n'est pas une paye */
   if(g('fFrom')!==undefined){ draft.from=g('fFrom'); draft.to=g('fTo'); }
   const espNow=readEsp(); if(espNow) draft.esp=espNow;   /* on garde le détail billets/pièces affiché */
   if(t==='tr') draft.type='transfer';
   UI.edit=(cur.id||draft.date||draft.note||draft.montant||draft.categorie)?draft:null;
   UI.type=t; render();
 }
-function onCatChange(){ const c=document.getElementById("fCat").value; document.getElementById("fSub").innerHTML=subOptions(c,""); }
+function onCatChange(){ const c=document.getElementById("fCat").value, ss=document.getElementById("fSub"); ss.innerHTML=subOptions(c,"",true); ss.dataset.prev=""; catHint(); }
+/* sous la catégorie : ce que ça va faire (remboursement d'une enveloppe, argent avec une personne) */
+function catHint(){ const h=document.getElementById("catHint"), cs=document.getElementById("fCat"); if(!h||!cs) return;
+  const c=cs.value, g=catGenre(c), ent=UI.type==="ent", lbl=document.getElementById("fSubLbl");
+  if(lbl) lbl.textContent=g==="argent"?"Personne":"Sous-catégorie";
+  let txt="";
+  const o=UI.edit&&UI.edit.id&&DB.transactions.find(x=>x.id===UI.edit.id);
+  if(c&&g==="depense"&&ent&&o&&o.montant<0) txt=`⚠️ Tu <b>transformes cette dépense</b> en remboursement : la dépense de ${eur(Math.abs(o.montant))} disparaîtra.
+    Pour noter qu'on t'a rendu de l'argent, garde la dépense et ajoute une ligne à part :
+    <button class="btn ghost sm" style="display:inline;width:auto;padding:3px 8px;margin-top:4px" onclick="rembNouvelleLigne()">↩️ Noter le remboursement sur une nouvelle ligne</button>`;
+  else if(c&&g==="depense"&&ent) txt=`↩️ <b>Remboursement</b> : ce montant allège ton enveloppe « ${escH(c)} ». Ta dépense reste sur sa propre ligne.`;
+  else if(c&&g==="paye"&&!ent) txt=`⚠️ <b>Paye</b> en dépense : ce montant ne comptera ni comme dépense ni comme paye. Choisis plutôt une enveloppe.`;
+  else if(g==="argent") txt=ent?`🤝 <b>Argent</b> qu'on te donne ou qu'on te rend : choisis la personne. Ce n'est pas ta paye.`
+                               :`🤝 <b>Argent</b> que tu donnes ou que tu rends : choisis la personne. Ce n'est pas une dépense d'enveloppe.`;
+  h.innerHTML=txt; h.style.display=txt?"":"none"; }
+/* à la modification d'une dépense : on la garde telle quelle et on prépare une nouvelle ligne de remboursement (même enveloppe) */
+function rembNouvelleLigne(){ const v=id=>{ const el=document.getElementById(id); return el?el.value:""; };
+  UI.edit={date:todayISO(), note:"", categorie:v("fCat"), sousCategorie:v("fSub")==="__new__"?"":v("fSub"), compte:v("fCompte")};   /* moyen : celui d'une entrée par défaut */
+  UI.type="ent"; render(); window.scrollTo(0,0); toast("↩️ Nouvelle ligne : ta dépense reste telle quelle"); }
+/* « ➕ Nouvelle personne… » : on l'ajoute aux sous-catégories de la catégorie Argent */
+function onSubChange(){ const ss=document.getElementById("fSub"), cs=document.getElementById("fCat"); if(!ss||!cs) return;
+  if(ss.value!=="__new__"){ ss.dataset.prev=ss.value; return; }
+  const prev=ss.dataset.prev!=null?ss.dataset.prev:((UI.edit&&UI.edit.categorie===cs.value&&UI.edit.sousCategorie)||"");
+  const c=catObj(cs.value), nom=((window.prompt("Nom de la personne :")||"")+"").replace(/,/g," ").replace(/\s+/g," ").trim();   /* pas de virgule : elle sépare les personnes dans Réglages */
+  if(!c||!nom){ ss.innerHTML=subOptions(cs.value,prev,true); return; }   /* annulé : on remet la personne d'avant */
+  c.subs=c.subs||[]; const deja=c.subs.find(x=>x.toLowerCase()===nom.toLowerCase());
+  if(!deja){ c.subs.push(nom); save(); toast("👤 "+nom+" ajouté(e)"); }
+  ss.innerHTML=subOptions(cs.value,deja||nom,true); ss.dataset.prev=deja||nom; }
 function escH(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;"); }
 /* tous les libellés connus : ma liste (⭐) + tout ce que j'ai déjà saisi (avec la catégorie utilisée) */
 function libPool(){
@@ -1048,10 +1189,11 @@ function bindSaisie(){
   const esc1=s=>String(s||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'");
   /* plusieurs catégories proposées (nombre réglable), la plus fréquente pour ce libellé en premier */
   const runSugg=()=>{ const box=document.getElementById("sugg"); if(!box)return;
-    const gs=tr?[]:Categoriseur.guessAll(note.value,pref("nbSugg")||3);
+    const nb=pref("nbSugg")||3, cs0=document.getElementById("fCat");
+    const gs=tr?[]:Categoriseur.guessAll(note.value,nb+4).filter(g=>!cs0||[...cs0.options].some(o=>o.value===g.cat)).slice(0,nb);   /* seulement les catégories possibles pour ce sens */
     if(gs.length){ box.classList.add("show");
       const cc=(document.getElementById("fCat")||{}).value||"", cs=(document.getElementById("fSub")||{}).value||"";
-      box.innerHTML=`🤖 <span style="white-space:nowrap">Proposé :</span><div class="suggs">`+gs.map(g=>`<button class="apply ${g.cat===cc&&g.sub===cs?"on":""}" data-c="${escH(g.cat)}" data-s="${escH(g.sub)}" onclick="applySugg('${esc1(g.cat)}','${esc1(g.sub)}')">${escH(g.cat)}${g.sub?" / "+escH(g.sub):""}<small>${escH(g.src)}</small></button>`).join("")+`</div>`;
+      box.innerHTML=`🤖 <span style="white-space:nowrap">Proposé :</span><div class="suggs">`+gs.map(g=>`<button class="apply ${g.cat===cc&&g.sub===cs?"on":""}" data-c="${escH(g.cat)}" data-s="${escH(g.sub)}" onclick="applySugg(this.dataset.c,this.dataset.s)">${escH(g.cat)}${g.sub?" / "+escH(g.sub):""}<small>${escH(g.src)}</small></button>`).join("")+`</div>`;
     } else box.classList.remove("show"); };
   const runStar=()=>{ const star=document.getElementById("libStar"); if(!star)return; const txt=note.value.trim();
     const known=(DB.libelles||[]).some(l=>(l.txt||"").toLowerCase()===txt.toLowerCase());
@@ -1087,7 +1229,11 @@ function starLib(){
   }
   const star=document.getElementById("libStar"); if(star)star.innerHTML="";
 }
-function applySugg(cat,sub){ const cs=document.getElementById("fCat"); if(cs){cs.value=cat; document.getElementById("fSub").innerHTML=subOptions(cat,sub);}
+function applySugg(cat,sub){ let cs=document.getElementById("fCat");
+  if(cs&&cat&&![...cs.options].some(o=>o.value===cat)){   /* catégorie absente pour ce sens */
+    if(UI.type==="dep"&&catGenre(cat)==="paye"&&catObj(cat)&&catObj(cat).active){ setType("ent"); cs=document.getElementById("fCat"); toast("💶 C'est une paye : passée en ↑ Entrée"); }
+    else { cs.value=""; document.getElementById("fSub").innerHTML=subOptions("","",true); catHint(); toast("« "+cat+" » n'est pas proposée ici : choisis une catégorie"); return; } }
+  if(cs){ cs.value=cat; const ss=document.getElementById("fSub"); ss.innerHTML=subOptions(cat,sub,true); ss.dataset.prev=sub||""; catHint(); }
   /* la puce correspondante passe en « retenue » */
   document.querySelectorAll("#sugg .apply").forEach(b=>b.classList.toggle("on",b.dataset.c===cat&&(b.dataset.s||"")===(sub||""))); }
 function saveTx(){
@@ -1108,7 +1254,7 @@ function saveTx(){
   const espE=espX;
   const obj={ id:eid||uid(), date, montant:(UI.type==="dep"?-1:1)*Math.abs(mont), esp:espE||undefined,
     note:document.getElementById("fNote").value.trim(), categorie:document.getElementById("fCat").value,
-    sousCategorie:document.getElementById("fSub").value, compte:document.getElementById("fCompte").value,
+    sousCategorie:(document.getElementById("fSub").value==="__new__"?"":document.getElementById("fSub").value), compte:document.getElementById("fCompte").value,
     moyen:document.getElementById("fMoyen").value, observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():""), periode:(UI.edit&&UI.edit.periode)||"" };
   commit(obj,eid);
 }
@@ -1194,7 +1340,7 @@ function commit(obj,eid,dest){
   else go(dest);
 }
 function nextRecount(){ if(UI.recountQueue&&UI.recountQueue.length){ const id=UI.recountQueue.shift();
-    toast("⚠️ Tu as touché à "+(acct(id)?acct(id).name:id)+" — recompte"); UI.compteAcc=id; UI.tab="compteur"; UI.recountActive=true; renderNav(); render(); window.scrollTo(0,0); }
+    toast("⚠️ Tu as touché à "+acctName(id)+" — recompte"); UI.compteAcc=id; UI.tab="compteur"; UI.recountActive=true; renderNav(); render(); window.scrollTo(0,0); }
   else { UI.recountActive=false; const dest=UI.afterRecount||"dash"; UI.afterRecount=null; go(dest); } }
 
 /* ===================== OPÉRATIONS ===================== */
@@ -1210,8 +1356,8 @@ function viewTx(){
       <div class="field" style="margin:0"><input type="number" inputmode="decimal" step="0.01" placeholder="💶 Montant exact" value="${escH(TXFILTER.montant)}" oninput="TXFILTER.montant=this.value;renderTxList()"></div>
     </div>
     <div class="row2" style="margin-bottom:8px">
-      <div class="field" style="margin:0"><select onchange="TXFILTER.cat=this.value;renderTxList()"><option value="">Toutes catégories</option>${DB.categories.map(c=>`<option ${TXFILTER.cat===c.name?'selected':''}>${c.name}</option>`).join("")}</select></div>
-      <div class="field" style="margin:0"><select onchange="TXFILTER.acct=this.value;renderTxList()"><option value="">Tous les comptes</option>${DB.accounts.map(a=>`<option value="${a.id}" ${TXFILTER.acct===a.id?'selected':''}>${a.emoji} ${a.name}</option>`).join("")}</select></div>
+      <div class="field" style="margin:0"><select onchange="TXFILTER.cat=this.value;renderTxList()"><option value="">Toutes catégories</option>${DB.categories.map(c=>`<option value="${escH(c.name)}" ${TXFILTER.cat===c.name?'selected':''}>${escH(c.name)}</option>`).join("")}</select></div>
+      <div class="field" style="margin:0">${selBq(`<select onchange="TXFILTER.acct=this.value;renderTxList()"><option value="">Tous les comptes</option>${DB.accounts.map(a=>`<option value="${a.id}" ${TXFILTER.acct===a.id?'selected':''}>${acctTxt(a)}</option>`).join("")}</select>`)}</div>
     </div>
     <div class="row2" style="align-items:center">
       <div class="field" style="margin:0"><select onchange="TXFILTER.type=this.value;renderTxList()">
@@ -1232,23 +1378,23 @@ function renderTxList(){
   if(TXFILTER.q){const q=TXFILTER.q.toLowerCase().replace(".",","); list=list.filter(t=>((t.note||"")+" "+(t.categorie||"")+" "+(t.sousCategorie||"")+" "+(t.observation||"")+" "+frDate(t.date)+" "+String(Math.abs(t.montant).toFixed(2)).replace(".",",")).toLowerCase().includes(q));}
   if(TXFILTER.cat) list=list.filter(t=>t.categorie===TXFILTER.cat);
   if(TXFILTER.acct) list=list.filter(t=> t.type==="transfer" ? (t.from===TXFILTER.acct||t.to===TXFILTER.acct) : resolveAccount(t)===TXFILTER.acct);
-  if(TXFILTER.type==="dep") list=list.filter(isDepense);
-  else if(TXFILTER.type==="ent") list=list.filter(isRevenu);
+  if(TXFILTER.type==="dep") list=list.filter(estSortie);
+  else if(TXFILTER.type==="ent") list=list.filter(estEntree);
   else if(TXFILTER.type==="tr") list=list.filter(t=>t.type==="transfer");
   const meta=document.getElementById("txMeta");
-  if(meta){ const dep=list.filter(isDepense).reduce((a,t)=>a+Math.abs(t.montant),0); const ent=list.filter(isRevenu).reduce((a,t)=>a+t.montant,0);
+  if(meta){ const dep=list.filter(estSortie).reduce((a,t)=>a+Math.abs(t.montant),0); const ent=list.filter(estEntree).reduce((a,t)=>a+t.montant,0);
     meta.innerHTML=`<b>${list.length}</b> opération${list.length>1?'s':''}`+(dep?` · <span class="neg">−${eur0(dep)}</span>`:'')+(ent?` · <span class="pos">+${eur0(ent)}</span>`:''); }
   const el=document.getElementById("txlist"); if(!el)return;
   if(!list.length){ el.innerHTML=`<div class="empty">Aucune opération${txFiltersActive()?' pour ces filtres':''}.</div>`; return; }
   el.innerHTML=list.map(t=>{
     if(t.type==="transfer") return `<div class="tx"><div class="ava">⇄</div>
-      <div class="info"><div class="t1">${escH(t.note||"Transfert")}${t.observation?' 📝':''}</div><div class="t2"><span class="d">${frDateJ(t.date)}</span> · ${acctName(t.from)} → ${acctName(t.to)}${t.esp?'<br>💵 '+espLabel(t.esp):''}</div></div>
+      <div class="info"><div class="t1">${escH(t.note||"Transfert")}${t.observation?' 📝':''}</div><div class="t2"><span class="d">${frDateJ(t.date)}</span> · ${acctHTML(t.from)} → ${acctHTML(t.to)}${t.esp?'<br>💵 '+espLabel(t.esp):''}</div></div>
       <div class="amt">${eur(t.montant)}</div>
       <button class="del" onclick="editTx('${t.id}')">✏️</button><button class="del" onclick="delTx('${t.id}')">🗑️</button></div>`;
     const dep=t.montant<0;
-    return `<div class="tx"><div class="ava">${catEmoji(t.categorie)}</div>
-      <div class="info"><div class="t1">${t.note||t.sousCategorie||t.categorie||"Opération"}${t.observation?' 📝':''}</div>
-        <div class="t2"><span class="d">${frDateJ(t.date)}</span> · ${t.categorie||"—"}${t.sousCategorie?" / "+t.sousCategorie:""} · ${acctName(resolveAccount(t))}${t.esp?'<br>💵 '+espLabel(t.esp):''}</div></div>
+    return `<div class="tx"><div class="ava">${escH(catEmoji(t.categorie))}</div>
+      <div class="info"><div class="t1">${escH(t.note||t.sousCategorie||t.categorie||"Opération")}${t.observation?' 📝':''}</div>
+        <div class="t2"><span class="d">${frDateJ(t.date)}</span> · ${isRemb(t)?"↩️ remboursement · ":isArgentTx(t)?"🤝 ":""}${escH(t.categorie||"—")}${t.sousCategorie?" / "+escH(t.sousCategorie):""} · ${acctHTML(resolveAccount(t))}${t.esp?'<br>💵 '+espLabel(t.esp):''}</div></div>
       <div class="amt ${dep?'neg':'pos'}">${dep?"":"+"}${eur(t.montant)}</div>
       <button class="del" onclick="editTx('${t.id}')">✏️</button><button class="del" onclick="delTx('${t.id}')">🗑️</button></div>`;
   }).join("");
@@ -1275,7 +1421,7 @@ function viewAvenir(){
     const isTr=f.type==="transfer"; const dep=f.montant<0; const late=f.statut==="prévu"&&f.date<today;
     const fl=(FREQ_LBL[f.freq]||"")+(f.sansFin?" ∞":"");
     const amtCls=isTr?"":(dep?"neg":"pos"), amtPre=isTr?"⇄ ":(dep?"":"+");
-    const ligne2=isTr?`${acctName(f.from)} → ${acctName(f.to)}`:`${f.categorie||'—'}${f.sousCategorie?' / '+f.sousCategorie:''} · ${acctName(f.compte)}`;
+    const ligne2=isTr?`${acctHTML(f.from)} → ${acctHTML(f.to)}`:`${f.categorie||'—'}${f.sousCategorie?' / '+f.sousCategorie:''} · ${acctHTML(f.compte)}`;
     return `<div class="fitem"><div class="em" style="font-size:20px">${f.statut==="payé"?"✅":f.statut==="annulé"?"🚫":late?"⏰":"📌"}</div>
       <div class="fi"><div class="ft1">${f.nom} <span class="amt ${amtCls}">${amtPre}${eur(f.montant)}</span></div>
         <div class="ft2">${frDate(f.date)} · ${ligne2}${fl?' · '+fl:''}</div></div>
@@ -1298,12 +1444,12 @@ function viewAvenir(){
       <div class="field"><label>1ʳᵉ échéance (date)</label><input id="fuDate" type="date" value="${todayISO()}"></div></div>
     ${t==='tr'?`
       <div class="field"><label>Montant par échéance (€)</label><input id="fuMontant" type="number" inputmode="decimal" step="0.01" placeholder="0,00"></div>
-      <div class="row2"><div class="field"><label>Du compte</label><select id="fuFrom">${acctOptions('cc')}</select></div>
-        <div class="field"><label>Vers le compte</label><select id="fuTo">${acctOptions('assurancevie')}</select></div></div>`
+      <div class="row2"><div class="field"><label>Du compte</label>${selBq(`<select id="fuFrom">${acctOptions('cc')}</select>`)}</div>
+        <div class="field"><label>Vers le compte</label>${selBq(`<select id="fuTo">${acctOptions('assurancevie')}</select>`)}</div></div>`
     :`
       <div class="row2"><div class="field"><label>Montant par échéance (€)</label><input id="fuMontant" type="number" inputmode="decimal" step="0.01" placeholder="0,00"></div>
-        <div class="field"><label>Compte concerné</label><select id="fuCompte">${acctOptions('cc')}</select></div></div>
-      <div class="row2"><div class="field"><label>Catégorie</label><select id="fuCat" onchange="document.getElementById('fuSub').innerHTML=subOptions(this.value,'')">${catOptions('')}</select></div>
+        <div class="field"><label>Compte concerné</label>${selBq(`<select id="fuCompte">${acctOptions('cc')}</select>`)}</div></div>
+      <div class="row2"><div class="field"><label>Catégorie</label><select id="fuCat" onchange="document.getElementById('fuSub').innerHTML=subOptions(this.value,'')">${catOptions('',t)}</select></div>
         <div class="field"><label>Sous-catégorie</label><select id="fuSub">${subOptions('','')}</select></div></div>`}
     <div class="field"><label>Fréquence</label>
       <select id="fuFreq" onchange="document.getElementById('fuRecBlock').style.display=this.value==='ponctuel'?'none':'grid'">
@@ -1454,7 +1600,11 @@ function denomChip(d,big){
 function openCompteur(id){ const cash=DB.accounts.filter(a=>a.active&&a.type==="cash"); UI.compteAcc=id||(cash[0]&&cash[0].id)||"caisse"; UI.recountActive=false; UI.tab="compteur"; renderNav(); render(); window.scrollTo(0,0); }
 function viewCompteur(){
   const cash=DB.accounts.filter(a=>a.active&&a.type==="cash");
-  const a=acct(UI.compteAcc)||cash[0]; if(!a) return `<div class="pagehead">🧮 Compteur</div><div class="card"><div class="empty">Aucun compte espèces actif.</div></div>`;
+  const cur=acct(UI.compteAcc), a=(cur&&cur.type==="cash")?cur:cash[0]; if(!a) return `<div class="pagehead">🧮 Compteur</div><div class="card"><div class="empty">Aucun compte espèces actif.</div></div>`;
+  /* on mémorise le compte réellement affiché : le récap « Dans … tu as », « Caler » et « C'est fait » lisent UI.compteAcc.
+     Sans ça, en arrivant par le menu Espèces (rien de choisi), le récap restait vide et « Caler » ne faisait rien. */
+  UI.compteAcc=a.id;
+  const liste=cash.indexOf(a)<0?[a].concat(cash):cash;   /* un compte masqué à recompter reste choisissable */
   const stored=a.cash||{};
   const getPR=(k)=>{const s=stored[k]; if(s==null)return{p:"",r:""}; if(typeof s==="number")return{p:s,r:""}; return {p:s.p||"",r:s.r||""};};
   const expected=Math.round((computeBalances()[a.id]||0)*100)/100;
@@ -1471,9 +1621,9 @@ function viewCompteur(){
   const hist=(DB.cashCounts||[]).filter(c=>c.acct===a.id).slice().sort((x,y)=>y.date.localeCompare(x.date)).slice(0,12);
   const histHTML=hist.length?hist.map(c=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line)"><span class="muted">${frDate(c.date)}</span><span><b>${eur(c.total)}</b> · écart <span style="color:${Math.abs(c.ecart)<0.005?'var(--pos)':'var(--warn)'}">${c.ecart>0?'+':''}${eur(c.ecart)}</span></span></div>`).join(""):'<div class="muted" style="font-size:12.5px">Aucun comptage enregistré pour l\'instant.</div>';
   return `<div class="pagehead">💵 Espèces</div>
-  ${UI.recountActive?`<div class="insight" style="background:var(--accent-soft);margin-bottom:14px"><div class="em">⚠️</div><div class="it">Tu as touché à <b>${a.name}</b> — recompte ce qu'il te reste réellement, puis « Caler ».</div></div>`:""}
+  ${UI.recountActive?`<div class="insight" style="background:var(--accent-soft);margin-bottom:14px"><div class="em">⚠️</div><div class="it">Tu as touché à <b>${escH(a.name)}${bqPoint(a)}</b> — recompte ce qu'il te reste réellement, puis « Caler ».</div></div>`:""}
   <div class="card"><div class="field" style="margin-bottom:4px"><label>Quel compte espèces ?</label>
-    <select onchange="UI.compteAcc=this.value;render()">${cash.map(c=>`<option value="${c.id}" ${c.id===a.id?'selected':''}>${c.emoji} ${c.name}</option>`).join("")}</select></div></div>
+    ${selBq(`<select onchange="UI.compteAcc=this.value;render()">${liste.map(c=>`<option value="${c.id}" ${c.id===a.id?'selected':''}>${acctTxt(c)}</option>`).join("")}</select>`)}</div></div>
   <div id="caisseVisu"></div>
   <div class="card"><h2>💶 Billets${allowPack?" & liasses":""}</h2>${billets.map(row).join("")}</div>
   <div class="card"><h2>🪙 Pièces${allowPack?" & rouleaux":""}</h2>${pieces.map(row).join("")}</div>
@@ -1481,11 +1631,11 @@ function viewCompteur(){
     <div style="display:flex;justify-content:space-between;align-items:center;font-size:18px;font-weight:800"><span>Total compté</span><span id="caisseTotal">0,00 €</span></div>
     <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-top:8px"><span>Solde calculé (opérations)</span><span id="caisseExpected" data-exp="${expected}">${eur(expected)}</span></div>
     <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:3px"><span class="muted">Écart (fond de caisse)</span><span id="caisseEcart" style="font-weight:800">—</span></div>
-    <button class="btn" style="margin-top:14px" onclick="saveCaisse()">✅ Caler le solde de « ${a.name} » sur le compté</button>
+    <button class="btn" style="margin-top:14px" onclick="saveCaisse()">✅ Caler le solde de « ${escH(a.name)}${bqPoint(a)} » sur le compté</button>
     <button class="btn ghost" onclick="nextRecount()" style="margin-top:8px">← ${(UI.recountQueue&&UI.recountQueue.length)?"Compte suivant":"Retour"}</button>
     <div class="muted" style="font-size:11.5px;margin-top:10px">L'écart compare ton comptage physique au solde calculé d'après tes opérations. « Caler » ajuste le solde sur le réel compté.</div>
   </div>
-  <div class="card"><h2>🗓️ Historique des comptages — ${a.name}</h2>${histHTML}</div>`;
+  <div class="card"><h2>🗓️ Historique des comptages — ${escH(a.name)}${bqPoint(a)}</h2>${histHTML}</div>`;
 }
 function recalcCaisse(){ const inputs=[...document.querySelectorAll('#main input[data-amt]')]; if(!inputs.length)return 0;
   let total=0; const byKey={};
@@ -1545,7 +1695,7 @@ function renderCaisseVisu(){
     <div class="muted" style="font-size:11.5px;margin-top:10px">« C'est fait » range les ${looseWord(0.01,2)}/${looseWord(500,2)} dans la colonne ${packWord(0.01,2)}/${packWord(500,2)} : le total ne bouge pas.</div>
   </div>`:"";
   box.innerHTML=alerte+`<div class="card">
-    <h2>👀 Dans « ${a.name} », tu as <span class="tag">${eur(Math.round(grand*100)/100)}</span></h2>
+    <h2>👀 Dans « ${escH(a.name)}${bqPoint(a)} », tu as <span class="tag">${eur(Math.round(grand*100)/100)}</span></h2>
     ${tiles.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">${tiles.join("")}</div>`
       :`<div class="empty">Rien de compté pour l'instant — remplis les cases plus bas.</div>`}
     <div class="muted" style="font-size:11.5px;margin-top:10px">Ce que tu tapes en dessous s'affiche ici tout de suite.</div>
@@ -1577,7 +1727,7 @@ function saveCaisse(){
   a.opening=(a.opening||0)+ecart;
   DB.cashCounts=DB.cashCounts||[]; DB.cashCounts.push({id:uid(),date:todayISO(),acct:a.id,total,ecart});
   UI.recountActive=false;
-  save(); toast("« "+a.name+" » : "+eur(total)+(Math.abs(ecart)>=0.005?" (écart "+(ecart>0?"+":"")+eur(ecart)+")":""));
+  save(); toast("« "+acctTxt(a)+" » : "+eur(total)+(Math.abs(ecart)>=0.005?" (écart "+(ecart>0?"+":"")+eur(ecart)+")":""));
   if(UI.recountQueue&&UI.recountQueue.length) nextRecount(); else go("dash");
 }
 
@@ -1621,7 +1771,9 @@ function onCompteChange(){
 function espToggle(){ const b=document.getElementById("espBody"), t=document.getElementById("espBtn"); if(!b||!t)return;
   const hidden=b.style.display==="none"; b.style.display=hidden?"":"none"; t.textContent=hidden?"Masquer":"Afficher"; }
 /* affiche le détail seulement si un compte espèces est concerné, et explique ce qui va se passer */
+document.addEventListener("change",e=>{ const t=e.target; if(t&&t.matches&&t.matches(".selbq select")) majBqDots(); });
 function espSync(){
+  majBqDots();   /* les comptes ont pu être changés par programme (libellé de transfert choisi) */
   const wrap=document.getElementById("espWrap"); if(!wrap) return;
   let show=false, hint="";
   if(UI.type==="tr"){
@@ -1775,24 +1927,29 @@ function viewBudget(){
   const annee=UI.month==="all";                       /* « Toute l'année » : on cumule tout */
   const m=annee?"all":UI.month;
   const nbMois=annee?Math.max(1,moisRenseignes().length):1;   /* les limites sont mensuelles → × nb de mois */
-  const tx=txOfMonth(m).filter(isDepense);
-  const spentM={}; tx.forEach(t=>{const c=t.categorie||"Autres"; spentM[c]=(spentM[c]||0)+Math.abs(t.montant);});
-  const cats=DB.categories.map((c,i)=>({c,i,plaf:catPlafond(c)*nbMois,sMois:spentM[c.name]||0})).filter(x=>x.c.active);
+  /* dépensé par enveloppe = dépenses − remboursements reçus dans cette catégorie (ex : resto 40 €, on te rend 20 € → 20 €) */
+  const spentM={}, rembM={};
+  txOfMonth(m).forEach(t=>{ const c=t.categorie||"Autres";
+    if(isDepense(t)) spentM[c]=(spentM[c]||0)+Math.abs(t.montant); else if(isRemb(t)) rembM[c]=(rembM[c]||0)+t.montant; });
+  /* la paye et l'argent ne sont pas des enveloppes : ils sont suivis à part (carte « Mes entrées ») */
+  const cats=DB.categories.map((c,i)=>({c,i,plaf:catPlafond(c)*nbMois,dep:spentM[c.name]||0,remb:rembM[c.name]||0}))
+    .map(x=>Object.assign(x,{sMois:Math.round((x.dep-x.remb)*100)/100})).filter(x=>x.c.active&&genreDe(x.c)==="depense");
   const totPlaf=cats.reduce((a,x)=>a+x.plaf,0);
   const inputs=x=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11.5px" class="muted">
       <span style="display:inline-flex;align-items:center;gap:3px">€/mois <input type="number" min="0" step="5" placeholder="0" value="${x.c.budget||""}" onchange="setCatBudget(${x.i},this.value)" style="width:64px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"></span>
       ${x.c.budget>0?`<button class="btn ghost sm" style="width:auto;padding:3px 8px;font-size:10.5px" title="J'ai tapé un prix à l'année ? Clique pour le diviser par 12 et le passer en mensuel" onclick="convertAn(${x.i})">c'était par an ÷12</button>`:""}
     </div>`;
-  const row=x=>{ const has=x.plaf>0, r=has?x.sMois/x.plaf:0, pct=Math.min(r*100,100), col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)", reste=x.plaf-x.sMois;
-    return `<div class="bbar"><div class="top"><span>${x.c.emoji} <b>${x.c.name}</b></span>
-      <span style="color:${has?col:'var(--muted)'}">${has?`${eur0(x.sMois)} <span class="muted">/ ${eur0(x.plaf)}</span>`:`${eur0(x.sMois)} <span class="muted">dépensés</span>`}</span></div>
+  const row=x=>{ const net=Math.max(0,x.sMois), has=x.plaf>0, r=has?net/x.plaf:0, pct=Math.min(r*100,100), col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)", reste=x.plaf-net;
+    return `<div class="bbar"><div class="top"><span>${escH(x.c.emoji)} <b>${escH(x.c.name)}</b></span>
+      <span style="color:${has?col:'var(--muted)'}">${has?`${eur0(net)} <span class="muted">/ ${eur0(x.plaf)}</span>`:`${eur0(net)} <span class="muted">dépensés</span>`}</span></div>
       ${has?`<div class="track"><div class="fill" style="width:${pct}%;background:${col}"></div></div>`:""}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;flex-wrap:wrap;gap:6px">
         ${has?`<span class="muted" style="font-size:11.5px">${reste>=0?`reste <b class="pos">${eur0(reste)}</b>`:`dépassé de <b class="neg">${eur0(-reste)}</b>`}</span>`:`<span class="muted" style="font-size:11.5px">pas encore de limite</span>`}
         ${inputs(x)}
-      </div></div>`;};
+      </div>${x.remb>0.005?`<div class="muted" style="font-size:11px;margin-top:3px">↩️ ${eur0(x.dep)} payés − <b class="pos">${eur0(x.remb)}</b> remboursés${x.sMois<-0.005?` <span>(le reste rembourse une dépense d'un autre mois)</span>`:""}</div>`:""}</div>`;};
   return `<div class="pagehead">🎯 Mes enveloppes</div>${monthSelector()}
   ${aDepenserCardHTML(totPlaf,m,nbMois)}
+  ${entreesCardHTML(m)}
   <div class="card"><h2>Mes enveloppes — ${annee?"toute l'année":MONTHS[m]}</h2>
     <div class="muted" style="font-size:12px;margin-bottom:10px">${annee
       ? `Tes dépenses <b>cumulées</b> sur l'année, comparées à tes limites mensuelles multipliées par les <b>${nbMois} mois</b> que tu as saisis.`
@@ -1801,15 +1958,39 @@ function viewBudget(){
     ${cats.map(row).join("")}</div>
   ${epargneCardHTML(m,nbMois)}`;
 }
+/* Mes entrées : la paye reçue (face à la paye prévue), l'argent donné / rendu par personne, les remboursements d'enveloppes */
+function entreesCardHTML(m){
+  const annee=(m==="all"), tx=txOfMonth(m), r2=x=>Math.round(x*100)/100;
+  const recue=r2(tx.filter(isRevenu).reduce((a,t)=>a+t.montant,0));
+  const sansCat=r2(tx.filter(t=>isRevenu(t)&&!t.categorie).reduce((a,t)=>a+t.montant,0));
+  const prevue=annee?payeAnnuelle().tot:payeDuMois(m);
+  const ag=argentTotaux(tx), remb=r2(tx.filter(isRemb).reduce((a,t)=>a+t.montant,0));
+  const pers=argentParPersonne(), aPaye=DB.categories.some(c=>genreDe(c)==="paye"), aArgent=DB.categories.some(c=>genreDe(c)==="argent");
+  const ligne=(g,d,x)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)"><span>${g}</span><span style="text-align:right">${d}</span></div>${x?`<div class="muted" style="font-size:11.5px;margin:-3px 0 4px">${x}</div>`:""}`;
+  const soldeTxt=p=>p.solde>0.005?`<b class="pos">+${eur0(p.solde)}</b> <span class="muted">reçu en plus</span>`:p.solde<-0.005?`<b class="neg">−${eur0(-p.solde)}</b> <span class="muted">donné en plus</span>`:`<b>✅ à zéro</b>`;
+  return `<div class="card"><h2>💰 Mes entrées — ${annee?"toute l'année":MONTHS[m]}</h2>
+    <div class="muted" style="font-size:12px;margin-bottom:6px">Ce ne sont pas des enveloppes : on les suit à part. Seule la paye compte comme ce que tu as à dépenser.</div>
+    ${ligne("💶 <b>Paye reçue</b>",`<b class="pos">${eur0(recue)}</b>${prevue>0?` <span class="muted">/ ${eur0(prevue)} prévue</span>`:""}`,
+      (sansCat>0.005?`dont ${eur0(sansCat)} d'entrées sans catégorie. `:"")+(!aPaye&&recue-sansCat<0.005?`Donne le genre <b>💶 Paye</b> à ta catégorie de paye dans Réglages → Catégories.`:""))}
+    ${ligne("🤝 <b>Argent</b>",(ag.recu||ag.donne)?`<b class="pos">+${eur0(ag.recu)}</b> reçus · <b class="neg">−${eur0(ag.donne)}</b> donnés ou rendus`:`<span class="muted">rien ${annee?"cette année":"ce mois-ci"}</span>`,
+      aArgent?"":`Donne le genre <b>🤝 Argent</b> à ta catégorie Argent dans Réglages → Catégories.`)}
+    ${ligne("↩️ <b>Remboursements</b>",remb>0?`<b class="pos">${eur0(remb)}</b>`:`<span class="muted">aucun</span>`,remb>0?"Ils allègent l'enveloppe où tu les as saisis.":"")}
+    ${pers.length?`<div style="font-weight:700;font-size:13px;margin:12px 0 2px">🤝 Avec chaque personne <span class="muted" style="font-weight:600;font-size:11.5px">· depuis le début</span></div>
+      ${pers.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px">
+        <div style="min-width:0"><b>${p.nom?"👤 "+escH(p.nom):"🏷️ "+escH(p.cat)+" <span class=\"muted\" style=\"font-weight:600\">· sans personne</span>"}</b><div class="muted" style="font-size:11.5px">+${eur0(p.recu)} reçus · −${eur0(p.donne)} donnés ou rendus</div></div>
+        <div style="text-align:right;white-space:nowrap">${soldeTxt(p)}</div></div>`).join("")}
+      <div class="muted" style="font-size:11px;margin-top:6px">Une personne = une sous-catégorie de ta catégorie Argent. « Reçu en plus » : on t'a donné ou avancé plus que tu n'as rendu.</div>`:""}
+  </div>`;
+}
 function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
 function convertAn(i){ const c=DB.categories[i]; if(!c)return; const v=+c.budget||0; if(v<=0){ toast("Tape d'abord le prix à l'année dans la case"); return; }
   c.budget=Math.round(v/12*100)/100; save(); render(); toast("Converti : "+eur(v)+"/an → "+eur(c.budget)+"/mois ✅"); }
 /* proposition : limite €/mois = moyenne dépensée par catégorie (celles sans limite) */
 function proposerPlafonds(){
   const n=Math.max(1,monthsWithDep().length); const per={};
-  DB.transactions.filter(isDepense).forEach(t=>{ const c=t.categorie||""; if(c) per[c]=(per[c]||0)+Math.abs(t.montant); });
+  DB.transactions.filter(pese).forEach(t=>{ const c=t.categorie||""; if(c) per[c]=(per[c]||0)+depVal(t); });
   let done=0;
-  activeCats().forEach(c=>{ if(catPlafond(c)>0) return; const amt=Math.round((per[c.name]||0)/n); if(amt>0){ c.budget=amt; done++; } });
+  activeCats().filter(c=>genreDe(c)==="depense").forEach(c=>{ if(catPlafond(c)>0) return; const amt=Math.round((per[c.name]||0)/n); if(amt>0){ c.budget=amt; done++; } });
   if(!done){ toast("Pas encore assez d'historique — mets tes limites à la main"); return; }
   save(); render(); toast(done+" limite(s) proposée(s) d'après tes dépenses moyennes 💡");
 }
@@ -1843,10 +2024,7 @@ function epargneCardHTML(m,nbMois){
     const detail=mv.out>0.005?` <span class="muted">(${eur0(mv.in)} entrés − ${eur0(mv.out)} sortis)</span>`:"";
     const r=cible?fait/cible:0, atteint=cible>0&&fait>=cible-0.005, col=atteint?'var(--pos)':'var(--accent)', reste=Math.max(0,cible-fait);
     return `<div class="setrow" style="flex-wrap:wrap;align-items:center">
-      <select style="flex:1.4;min-width:150px" onchange="payeSet('${l.id}','acct',this.value)">
-        <option value="">— Choisir un compte —</option>
-        ${DB.accounts.filter(a=>a.active&&a.id!=="cc").map(a=>`<option value="${a.id}" ${l.acct===a.id?"selected":""}>${a.emoji} ${a.name}</option>`).join("")}
-      </select>
+      ${selBq(`<select onchange="payeSet('${l.id}','acct',this.value)"><option value="">— Choisir un compte —</option>${DB.accounts.filter(a=>a.active&&a.id!=="cc").map(a=>`<option value="${a.id}" ${l.acct===a.id?"selected":""}>${acctTxt(a)}</option>`).join("")}</select>`,"flex:1.4;min-width:150px")}
       <span class="muted" style="font-size:11px">objectif</span>
       <input class="mini" type="number" min="0" step="1" value="${l.val||""}" onchange="payeSet('${l.id}','val',this.value)">
       <b style="min-width:56px;text-align:right">${eur0(cible)}</b>
@@ -1925,7 +2103,7 @@ function delObjectif(id){ const o=(DB.objectifs||[]).find(x=>x.id===id); if(!o)r
 
 /* ===================== ASSISTANT IA ===================== */
 function fluxBar(fl){
-  const denom=Math.max(fl.rev, fl.dep+fl.epargne+Math.max(fl.dispo,0), 1);
+  const denom=Math.max(fl.rev+Math.max(fl.argent||0,0)+(fl.rembAutres||0), fl.dep+fl.epargne+Math.max(fl.dispo,0), 1);
   const w=x=>Math.max(0,x)/denom*100;
   return `<div style="display:flex;height:16px;border-radius:8px;overflow:hidden;background:var(--surface-2);margin:12px 0">
     <div style="width:${w(fl.dep)}%;background:var(--neg)"></div>
@@ -1953,6 +2131,8 @@ function viewIA(){
     ${fluxRow("💼 Revenus","+"+eur(fl.rev),"var(--pos)")}
     ${fluxRow("🛒 Dépenses","−"+eur(fl.dep),"var(--neg)")}
     ${fluxRow("🐷 Mis de côté (épargne / placements)","−"+eur(fl.epargne),"var(--info)")}
+    ${Math.abs(fl.argent)>0.005?fluxRow("🤝 Argent donné / rendu (ni revenu, ni dépense)",(fl.argent>0?"+":"−")+eur(Math.abs(fl.argent)),fl.argent>0?"var(--pos)":"var(--neg)"):""}
+    ${fl.rembAutres>0.005?fluxRow("↩️ Remboursements d'une dépense d'un autre mois","+"+eur(fl.rembAutres),"var(--pos)"):""}
     ${fluxRow("✅ Reste disponible","" +(fl.dispo>=0?"":"−")+eur(Math.abs(fl.dispo)),fl.dispo>=0?"var(--pos)":"var(--neg)",true)}
     <div class="muted" style="font-size:11.5px;margin-top:8px">Le « reste disponible » = ce qui reste réellement sur tes comptes du quotidien (courant + caisse + portefeuille) une fois tes dépenses payées <b>et</b> ton épargne/placements mis de côté. L'argent placé n'est pas perdu — il a juste changé de compte.</div>
   </div>
@@ -1978,14 +2158,10 @@ function catColor(name){
 }
 /* ce qui a été dépensé ce mois-ci : catégorie par catégorie, puis sous-catégorie par sous-catégorie */
 function depDetail(m){
-  const cats={};
-  txOfMonth(m).filter(isDepense).forEach(t=>{
-    const c=t.categorie||"Autres", s=t.sousCategorie||"Sans sous-catégorie", v=Math.abs(t.montant);
-    const e=cats[c]||(cats[c]={name:c,tot:0,subs:{}});
-    e.tot+=v; e.subs[s]=(e.subs[s]||0)+v;
-  });
-  return Object.values(cats).sort((a,b)=>b.tot-a.tot)
-    .map(e=>({name:e.name, tot:e.tot, subs:Object.entries(e.subs).sort((a,b)=>b[1]-a[1])}));
+  const det=depNettes(txOfMonth(m));   /* nets : un remboursement allège sa catégorie, sans jamais passer sous 0 */
+  return Object.keys(det).map(c=>({name:c, tot:det[c].tot,
+      subs:Object.entries(det[c].subs).map(([s,v])=>[s||"Sans sous-catégorie",v]).filter(x=>x[1]>0.005).sort((a,b)=>b[1]-a[1])}))
+    .sort((a,b)=>b.tot-a.tot);
 }
 /* le détail complet : une ligne de progression par catégorie, et une par sous-catégorie en dessous */
 function ouPartMonArgentHTML(m){
@@ -1997,7 +2173,7 @@ function ouPartMonArgentHTML(m){
     const col=catColor(e.name), maxSub=e.subs[0][1];
     const subs=e.subs.map(([s,v])=>`<div style="margin-top:9px">
       <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px">
-        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${s}</span>
+        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${escH(s)}</span>
         <span style="white-space:nowrap"><b>${eur0(v)}</b> <span class="muted">${Math.round(v/e.tot*100)}%</span></span></div>
       <div style="height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-top:4px">
         <div style="height:100%;border-radius:99px;width:${Math.max(v/maxSub*100,4)}%;background:${col};opacity:.5"></div></div>
@@ -2006,7 +2182,7 @@ function ouPartMonArgentHTML(m){
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <span style="font-weight:800;display:flex;align-items:center;gap:8px;min-width:0">
           <span style="flex:none;width:11px;height:11px;border-radius:4px;background:${col}"></span>
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${catEmoji(e.name)} ${e.name}</span></span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(catEmoji(e.name))} ${escH(e.name)}</span></span>
         <span style="white-space:nowrap"><b>${eur0(e.tot)}</b> <span class="muted">${Math.round(e.tot/tot*100)}%</span></span></div>
       <div style="height:10px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-top:7px">
         <div style="height:100%;border-radius:99px;width:${Math.max(e.tot/maxCat*100,4)}%;background:${col}"></div></div>
@@ -2053,7 +2229,7 @@ function viewRapport(){
         <span>🧷 Essentiel <b>${eur0(split.besoin)}</b></span><span>🎈 Plaisir <b>${eur0(split.envie)}</b></span></div>
       <div style="display:flex;height:12px;border-radius:99px;overflow:hidden;background:var(--surface-2)">
         <div style="width:${pctBesoin}%;background:var(--info)"></div><div style="flex:1;background:var(--warn)"></div></div>
-      <div class="muted" style="font-size:11.5px;margin-top:6px">${pctEnvie}% de tes dépenses sont des envies${topEnvies.length?` — surtout ${topEnvies.map(e=>`<b>${e[0]}</b>`).join(", ")}`:""}.</div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px">${pctEnvie}% de tes dépenses sont des envies${topEnvies.length?` — surtout ${topEnvies.map(e=>`<b>${escH(e[0])}</b>`).join(", ")}`:""}.</div>
     </div>`:""}
   </div>
 
@@ -2102,7 +2278,7 @@ function viewRapport(){
 /* ----- Classer essentiel / non essentiel (catégories + sous-catégories) ----- */
 function besoinToggle(checked,onChange){ return `<label class="switch"><input type="checkbox" ${checked?'checked':''} onchange="${onChange}"><span class="sl"></span></label>`; }
 function viewBesoins(){
-  const cats=DB.categories.filter(c=>c.active);
+  const cats=DB.categories.filter(c=>c.active&&genreDe(c)==="depense");   /* essentiel / envie : n'a de sens que pour les dépenses */
   const blocks=cats.map(c=>{ const i=DB.categories.indexOf(c); const catEss=catBesoin(c.name);
     const subRows=(c.subs||[]).map(s=>{ const eff=besoinOf(c.name,s); const explicite=!!(c.subsBesoin&&typeof c.subsBesoin[s]==="boolean");
       return `<div style="display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid var(--line)">
@@ -2564,16 +2740,24 @@ function viewReglages(){
     <label class="switch"><input type="checkbox" ${a.active?'checked':''} onchange="setAcc(${i},'active',this.checked)"><span class="sl"></span></label>
     <button class="del" title="Supprimer ce compte" onclick="delAcct(${i})">🗑️</button>
   </div>`).join("");
-  const cats=DB.categories.map((c,i)=>`<div class="setrow">
-    <input class="emoji" value="${c.emoji}" onchange="setCat(${i},'emoji',this.value)">
-    <input class="si" value="${c.name}" onchange="setCat(${i},'name',this.value)">
-    <input class="si" style="flex:2;min-width:150px" value="${(c.subs||[]).join(', ')}" placeholder="sous-catégories séparées par des virgules" onchange="setCatSubs(${i},this.value)">
-    <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);white-space:nowrap" title="Dépense essentielle (besoin) ou non (envie) — utilisé dans le rapport"><input type="checkbox" ${c.besoin?'checked':''} onchange="setCatBesoin(${i},this.checked)"> essentiel</label>
+  const cats=DB.categories.map((c,i)=>{ const g=genreDe(c);
+    return `<div class="setrow" style="flex-wrap:wrap">
+    <input class="emoji" value="${escH(c.emoji)}" onchange="setCat(${i},'emoji',this.value)">
+    <input class="si" value="${escH(c.name)}" onchange="setCat(${i},'name',this.value)">
+    <select class="gensel" title="Genre : une enveloppe de dépense, ta paye, ou l'argent donné / rendu avec des personnes" onchange="setCatGenre(${i},this.value)">${Object.keys(GENRES).map(k=>`<option value="${k}" ${g===k?'selected':''}>${GENRES[k].emo} ${GENRES[k].lbl}</option>`).join("")}</select>
+    <input class="si" style="flex:2;min-width:150px" value="${escH((c.subs||[]).join(', '))}" placeholder="${g==="argent"?"les personnes, séparées par des virgules":"sous-catégories séparées par des virgules"}" onchange="setCatSubs(${i},this.value)">
+    ${g==="depense"?`<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);white-space:nowrap" title="Dépense essentielle (besoin) ou non (envie) — utilisé dans le rapport"><input type="checkbox" ${c.besoin?'checked':''} onchange="setCatBesoin(${i},this.checked)"> essentiel</label>`:""}
     <label class="switch"><input type="checkbox" ${c.active?'checked':''} onchange="setCat(${i},'active',this.checked)"><span class="sl"></span></label>
+    <button class="del" title="Fusionner dans une autre catégorie" onclick="UI.fusionCat=(UI.fusionCat===${i}?null:${i});render()">🔀</button>
     <button class="del" onclick="delCat(${i})">🗑️</button>
-  </div>`).join("");
+    ${UI.fusionCat===i?`<div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--surface-2);border-radius:11px;padding:9px 11px;font-size:12.5px">
+      🔀 Fusionner « <b>${escH(c.name)}</b> » dans :
+      <select style="flex:1;min-width:140px" onchange="fusionCat(${i},this.value)"><option value="">— choisir —</option>${DB.categories.filter((x,j)=>j!==i).map(x=>`<option value="${escH(x.name)}">${escH(x.emoji)} ${escH(x.name)}</option>`).join("")}</select>
+      <button class="btn ghost sm" style="width:auto" onclick="UI.fusionCat=null;render()">Annuler</button></div>`:""}
+  </div>`; }).join("");
   const bqs=(DB.banques||[]).map((b,i)=>{ const n=DB.accounts.filter(a=>a.banque===b.id).length;
     return `<div class="setrow"><input type="color" class="coul" value="${b.couleur}" onchange="setBanque(${i},'couleur',this.value)" title="Couleur">
+      <span title="Rond affiché dans les listes déroulantes" style="font-size:15px">${rondCouleur(b.couleur)}</span>
       <input class="si" value="${escH(b.nom)}" onchange="setBanque(${i},'nom',this.value)">
       <span class="muted" style="font-size:12px;white-space:nowrap">${n} compte${n>1?"s":""}</span>
       <button class="del" title="Supprimer cette banque" onclick="delBanque(${i})">🗑️</button></div>`; }).join("");
@@ -2590,16 +2774,18 @@ function viewReglages(){
     ${acts}
     <div style="margin-top:12px"><button class="btn ghost sm" onclick="addAcct()">+ Ajouter un compte</button></div></div>
   <div class="card"><h2>🏛️ Banques</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Chaque compte appartient à une banque (menu dans « Comptes » ci-dessus) : sa <b>couleur</b> le distingue sur le tableau de bord, avec un total par banque. SwissBorg compte comme une banque ; « Espèces » regroupe la caisse et le portefeuille, à part.</div>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Chaque compte appartient à une banque (menu dans « Comptes » ci-dessus) : sa <b>couleur</b> le distingue partout : un point après le nom du compte (le rond emoji le plus proche dans les listes déroulantes), une bordure et un total par banque sur le tableau de bord. SwissBorg compte comme une banque ; « Espèces » regroupe la caisse et le portefeuille, à part.</div>
     ${bqs}
     <div class="setrow" style="border:none;padding-top:14px"><input id="nbCoul" class="coul" type="color" value="#2563eb" title="Couleur">
       <input id="nbNom" class="si" placeholder="Nouvelle banque (ex : Boursorama)">
       <button class="btn ghost sm" style="width:auto" onclick="addBanque()">+ Ajouter</button></div></div>
   <div class="card"><h2>🏷️ Catégories</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Renomme, ajoute ou désactive des catégories. Les sous-catégories sont séparées par des virgules. Coche <b>« essentiel »</b> si c'est un besoin (loyer, courses, santé…) plutôt qu'une envie — ça sert au rapport mensuel.</div>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Renomme, ajoute ou désactive des catégories. Les sous-catégories sont séparées par des virgules. Coche <b>« essentiel »</b> si c'est un besoin (loyer, courses, santé…) plutôt qu'une envie — ça sert au rapport mensuel.<br>
+      <b>Genre</b> : 🎯 <b>Dépense</b> = une enveloppe du budget (une <i>entrée</i> dedans = un remboursement qui l'allège) · 💶 <b>Paye</b> = ce que tu gagnes · 🤝 <b>Argent</b> = ce qu'on te donne ou t'avance et ce que tu rends, avec une sous-catégorie par personne. 🔀 fusionne une catégorie dans une autre (ses opérations la suivent).</div>
     ${cats}
     <div class="row2" style="margin-top:14px"><div class="field" style="margin:0"><input id="ncEmoji" class="emoji" placeholder="🏷️" style="width:100%"></div>
       <div class="field" style="margin:0"><input id="ncName" placeholder="Nom de la nouvelle catégorie"></div></div>
+    <div class="field" style="margin:8px 0 0"><select id="ncGenre">${Object.keys(GENRES).map(k=>`<option value="${k}">${GENRES[k].emo} ${GENRES[k].lbl}</option>`).join("")}</select></div>
     <button class="btn ghost sm" onclick="addCat()" style="margin-top:8px">+ Ajouter la catégorie</button>
     <button class="btn ghost sm" onclick="go('besoins')" style="margin-top:8px">✂️ Classer essentiel / non essentiel (détail par sous-catégorie) →</button></div>
   <div class="card"><h2>📝 Mes libellés</h2>
@@ -2608,7 +2794,7 @@ function viewReglages(){
     <div class="row2" style="margin-top:14px"><div class="field" style="margin:0"><input id="nlTxt" placeholder="Nouveau libellé (ex : Anthropic / Claude)"></div>
       <div class="field" style="margin:0"><button class="btn ghost sm" onclick="addLib()">+ Ajouter à ma liste</button></div></div></div>
   <div class="card"><h2>🎛️ Affichage</h2>
-    <label class="prefrow"><input type="checkbox" ${pref("couleurBanque")?"checked":""} onchange="setPref('couleurBanque',this.checked)"> <span>Colorer mes comptes selon leur banque sur le tableau de bord (avec le total par banque)</span></label>
+    <label class="prefrow"><input type="checkbox" ${pref("couleurBanque")?"checked":""} onchange="setPref('couleurBanque',this.checked)"> <span>Colorer mes comptes selon leur banque : un <b>point de couleur</b> après le nom du compte, partout (🔵 LCL, 🟣 Revolut… dans les listes), et sur le tableau de bord une bordure et le total par banque</span></label>
     <label class="prefrow"><input type="checkbox" ${pref("tdbPayer")?"checked":""} onchange="setPref('tdbPayer',this.checked)"> <span>Bouton <b>✅ Payé</b> dans « À venir bientôt », sur le tableau de bord</span></label>
     <div class="row2" style="margin-top:10px">
       <div class="field"><label>« À venir bientôt » : jours à l'avance</label><input type="number" min="1" max="365" step="1" value="${pref('tdbJours')}" onchange="setPref('tdbJours',Math.min(365,Math.max(1,parseInt(this.value)||30)))"></div>
@@ -2643,16 +2829,68 @@ function addBanque(){ const nom=(document.getElementById("nbNom").value||"").tri
 function rangerParBanque(){ const rang=id=>{ const i=(DB.banques||[]).findIndex(b=>b.id===id); return i<0?999:i; };
   DB.accounts=DB.accounts.map((a,i)=>[a,i]).sort((x,y)=>(rang(x[0].banque)-rang(y[0].banque))||(x[1]-y[1])).map(x=>x[0]); save(); render(); toast("Comptes rangés par banque 🏛️"); }
 function setPref(k,v){ if(!DB.prefs) DB.prefs={}; DB.prefs[k]=v; save(); render(); }
-function calibAcc(i,val){ const v=parseFloat(String(val).replace(",",".")); if(isNaN(v))return; const a=DB.accounts[i]; if(!a)return; const b=computeBalances(); a.opening=(a.opening||0)+(v-(b[a.id]||0)); save(); render(); toast("« "+a.name+" » recalé sur "+eur0(v)); }
+function calibAcc(i,val){ const v=parseFloat(String(val).replace(",",".")); if(isNaN(v))return; const a=DB.accounts[i]; if(!a)return; const b=computeBalances(); a.opening=(a.opening||0)+(v-(b[a.id]||0)); save(); render(); toast("« "+acctTxt(a)+" » recalé sur "+eur0(v)); }
 function addAcct(){ const id="acc"+Date.now().toString(36); DB.accounts.push({id,name:"Nouveau compte",emoji:"💳",type:"courant",opening:0,active:true}); save(); render(); }
+/* une catégorie change de nom : tout ce qui la cite suit (opérations, paiements à venir, libellés, apprentissages, filtre) */
+function renommerRefs(old,nn){
+  DB.transactions.forEach(t=>{ if(t.categorie===old) t.categorie=nn; });
+  (DB.future||[]).forEach(f=>{ if(f.categorie===old) f.categorie=nn; });
+  (DB.libelles||[]).forEach(l=>{ if(l.cat===old) l.cat=nn; });
+  Object.keys(DB.trained||{}).forEach(k=>{ const v=DB.trained[k]; if(Array.isArray(v)&&v[0]===old) v[0]=nn; });
+  if(TXFILTER.cat===old) TXFILTER.cat=nn; }
 function setCat(i,f,v){ const c=DB.categories[i]; if(!c)return;
-  if(f==="name"){ const old=c.name; const nn=v.trim()||old; DB.transactions.forEach(t=>{if(t.categorie===old)t.categorie=nn;}); c.name=nn; }
-  else c[f]= f==="active"?!!v:v; save(); if(f==="active"||f==="emoji")render(); }
+  if(f==="name"){ const old=c.name, nn=v.trim()||old; if(nn===old){ render(); return; }
+    if(catObj(nn)){ toast("« "+nn+" » existe déjà : pour réunir les deux, utilise 🔀"); render(); return; }   /* deux catégories du même nom : la 2e serait ignorée */
+    renommerRefs(old,nn); c.name=nn; save(); render(); return; }
+  c[f]= f==="active"?!!v:v; save(); if(f==="active"||f==="emoji")render(); }
 function setCatSubs(i,v){ DB.categories[i].subs=v.split(",").map(s=>s.trim()).filter(Boolean); save(); }
 function setCatBesoin(i,v){ if(DB.categories[i]){ DB.categories[i].besoin=!!v; save(); } }
-function delCat(i){ if(!confirm("Supprimer la catégorie « "+DB.categories[i].name+" » ? (les opérations existantes gardent leur libellé)"))return; DB.categories.splice(i,1); save(); render(); }
+function usagesCat(name){ return DB.transactions.filter(t=>t.categorie===name).length+(DB.future||[]).filter(f=>f.categorie===name).length; }
+function delCat(i){ const c=DB.categories[i]; if(!c) return; UI.fusionCat=null;
+  const n=usagesCat(c.name);
+  if(n){   /* supprimée, ses opérations changeraient de nature (l'argent redeviendrait une dépense, la paye…) */
+    if(confirm(`« ${c.name} » a déjà servi (${n} opération${n>1?"s":""} ou paiement${n>1?"s":""} à venir).\nLa supprimer changerait la façon dont elles comptent.\nPour la réunir avec une autre, utilise plutôt 🔀.\n\nOK = la masquer à la place (elle disparaît des listes, ses opérations comptent pareil).`)){
+      c.active=false; save(); toast("« "+c.name+" » masquée 🚫"); }
+    render(); return; }
+  if(!confirm("Supprimer la catégorie « "+c.name+" » ?"))return; DB.categories.splice(i,1); save(); render(); }
 function addCat(){ const n=document.getElementById("ncName").value.trim(); if(!n){toast("Donne un nom");return;}
-  DB.categories.push({name:n,emoji:(document.getElementById("ncEmoji").value.trim()||"🏷️"),active:true,subs:[]}); save(); toast("Catégorie ajoutée"); render(); }
+  if(catObj(n)){ toast("Cette catégorie existe déjà 😉"); return; }
+  const gs=document.getElementById("ncGenre"); let g=gs&&GENRES[gs.value]?gs.value:"depense";
+  /* des opérations portent déjà ce nom (ancien import : PAYE…) : sans choix explicite, on garde la façon dont elles comptent */
+  const avant=usagesCat(n)?catGenre(n):null, auto=avant&&g==="depense"&&avant!=="depense";
+  if(auto) g=avant;
+  DB.categories.push({name:n,emoji:(document.getElementById("ncEmoji").value.trim()||"🏷️"),active:true,subs:[],genre:g,besoin:true}); save();
+  toast(auto?GENRES[g].emo+" Catégorie ajoutée en "+GENRES[g].lbl+", comme ses opérations":"Catégorie ajoutée"); render(); }
+function setCatGenre(i,g){ const c=DB.categories[i]; if(!c||!GENRES[g]) return; c.genre=g;
+  let rendu=false;   /* elle redevient une enveloppe : on lui rend la limite partie dans « Ma paye » */
+  if(g!=="paye"&&c.budgetAvantPaye>0){ if(!(c.budget>0)) c.budget=c.budgetAvantPaye; if(DB.aDepenser===c.budgetAvantPaye) DB.aDepenser=0; delete c.budgetAvantPaye; rendu=true; }
+  const rep=reporterPaye(c); save(); render();
+  toast(GENRES[g].emo+" « "+c.name+" » : "+GENRES[g].lbl+(rep?" · sa limite passe dans « Ma paye » ("+eur0(DB.aDepenser)+")":rendu&&g==="depense"?" · elle retrouve sa limite de "+eur0(c.budget)+"/mois":"")); }
+/* fusionne la catégorie i dans « cible » : opérations, paiements à venir, libellés et apprentissages suivent ; les sous-catégories s'ajoutent */
+function fusionCat(i,cible){ const src=DB.categories[i], dst=catObj(cible); UI.fusionCat=null;
+  if(!src||!dst||src===dst){ render(); return; }
+  const n=DB.transactions.filter(t=>t.categorie===src.name).length, nf=(DB.future||[]).filter(f=>f.categorie===src.name).length;
+  const gs=genreDe(src), gd=genreDe(dst), env=gs==="depense"&&gd==="depense"&&src.budget>0;
+  const effet={depense:"comme des dépenses de l'enveloppe ; ses entrées deviendront des remboursements",
+    paye:"comme ta paye ; ses dépenses ne compteront plus nulle part",
+    argent:"comme de l'argent donné ou rendu, ni revenu ni dépense ; ses sous-catégories deviendront des personnes"}[gd];
+  if(!confirm(`Fusionner « ${src.name} » dans « ${dst.name} » ?\n${n} opération${n>1?"s":""}${nf?` et ${nf} paiement${nf>1?"s":""} à venir`:""} passe${n+nf>1?"nt":""} dans « ${dst.name} », avec leur sous-catégorie.`
+    +(gs!==gd?`\n⚠️ « ${src.name} » est ${GENRES[gs].emo} ${GENRES[gs].lbl} et « ${dst.name} » ${GENRES[gd].emo} ${GENRES[gd].lbl} : ses opérations compteront ${effet}.`:"")
+    +(env?`\nSa limite de ${eur0(src.budget)}/mois s'ajoute à celle de « ${dst.name} ».`:"")
+    +`\nLa catégorie « ${src.name} » disparaît.`)){ render(); return; }
+  const old=src.name;
+  const subsSrc=(src.subs||[]).concat(DB.transactions.filter(t=>t.categorie===old&&t.sousCategorie).map(t=>t.sousCategorie)), dejaDst=(dst.subs||[]).slice();
+  renommerRefs(old,dst.name);
+  if(env) dst.budget=Math.round(((+dst.budget||0)+(+src.budget||0))*100)/100;
+  dst.subs=dst.subs||[];
+  subsSrc.concat(DB.transactions.filter(t=>t.categorie===dst.name&&t.sousCategorie).map(t=>t.sousCategorie))
+    .forEach(x=>{ if(x&&dst.subs.indexOf(x)<0) dst.subs.push(x); });
+  if(src.subsBesoin){ dst.subsBesoin=dst.subsBesoin||{}; Object.keys(src.subsBesoin).forEach(k=>{ if(!(k in dst.subsBesoin)) dst.subsBesoin[k]=src.subsBesoin[k]; }); }
+  /* essentiel / envie : les autres sous-catégories venues de la source gardent le réglage de la source */
+  if(gd==="depense"&&src.besoin!==dst.besoin){ dst.subsBesoin=dst.subsBesoin||{};
+    subsSrc.forEach(x=>{ if(dejaDst.indexOf(x)<0&&!(x in dst.subsBesoin)) dst.subsBesoin[x]=!!src.besoin; }); }
+  DB.categories.splice(DB.categories.indexOf(src),1);
+  save(); render(); toast("🔀 « "+old+" » fusionnée dans « "+dst.name+" »"); }
 function setLib(i,f,v){ const l=DB.libelles[i]; if(!l)return;
   if(f==="txt"){ l.txt=v.trim()||l.txt; } else if(f==="cat"){ l.cat=v; l.sub=""; } else l[f]=v;
   save(); render(); }
@@ -2697,7 +2935,7 @@ window.go=go;window.setType=setType;window.onCatChange=onCatChange;window.applyS
 window.renderTxList=renderTxList;window.editTx=editTx;window.delTx=delTx;window.addFuture=addFuture;window.futurePay=futurePay;
 window.futureCancel=futureCancel;window.futureDelete=futureDelete;window.futureEdit=futureEdit;
 window.serieToggle=serieToggle;window.serieMontant=serieMontant;window.serieDate=serieDate;window.serieStop=serieStop;window.serieTout=serieTout;window.setAcc=setAcc;window.calibAcc=calibAcc;window.addAcct=addAcct;window.setCat=setCat;
-window.openCompteur=openCompteur;window.recalcCaisse=recalcCaisse;window.saveCaisse=saveCaisse;window.nextRecount=nextRecount;
+window.openCompteur=openCompteur;window.setCatGenre=setCatGenre;window.fusionCat=fusionCat;window.onSubChange=onSubChange;window.catHint=catHint;window.recalcCaisse=recalcCaisse;window.saveCaisse=saveCaisse;window.nextRecount=nextRecount;
 window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.espToggle=espToggle;window.onCompteChange=onCompteChange;window.espOublie=espOublie;
 window.addCryptoPlatform=addCryptoPlatform;window.logCryptoValue=logCryptoValue;window.delCryptoEntry=delCryptoEntry;window.delCryptoPlatform=delCryptoPlatform;
 window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHoraire;window.setPrevu=setPrevu;
