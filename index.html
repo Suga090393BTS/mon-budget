@@ -146,6 +146,37 @@ body.calc-ouverte .toast{bottom:calc(min(370px,55vh) + var(--navh,0px) + 14px)}
 .soustabs button.on{background:var(--surface);color:var(--accent);box-shadow:0 1px 5px rgba(15,23,42,.13)}
 @media(min-width:880px){ .soustabs button{flex-direction:row;justify-content:center;gap:7px;font-size:13.5px;padding:10px 6px} }
 #horForm{scroll-margin-top:90px}
+/* Listes repliables : la ligne de titre et son total restent visibles, la liste en dessous se masque (▸ / ▾) */
+.pli>summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:9px 0;border-bottom:1px solid var(--line);-webkit-tap-highlight-color:transparent}
+.pli>summary::-webkit-details-marker{display:none}
+.pli>summary .chev{order:-1;flex:none;color:var(--accent);font-size:14px;line-height:1;width:12px;transition:transform .15s}
+.pli[open]>summary .chev{transform:rotate(90deg)}
+.pli>summary .tot{flex:1;display:flex;justify-content:space-between;align-items:baseline;gap:10px;min-width:0}
+.pli>summary .tot>span:last-child{text-align:right;white-space:nowrap}
+.pli>summary .track{flex-basis:100%;height:6px;margin:0 0 0 19px;background:var(--surface-2);border-radius:6px;overflow:hidden}
+.pli>summary .track .fill{height:100%;border-radius:6px}
+.pli-c{padding:2px 0 8px 19px}
+.pli.sous>summary{font-size:13px;border-bottom-style:dashed}
+.lg{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:12.5px}
+.lg .g{min-width:0;overflow-wrap:anywhere} .lg .d{text-align:right;white-space:nowrap}
+.lg .ed{background:none;border:none;cursor:pointer;font-size:12px;padding:0 0 0 6px;opacity:.65}
+.mois-sep{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin:10px 0 2px;display:flex;justify-content:space-between;gap:8px}
+.nivsel,.subreg input{font:inherit;font-size:11.5px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);max-width:100%}
+.subreg{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11.5px;color:var(--muted);padding:6px 0 4px}
+.subreg input{width:70px;text-align:right}
+.tri{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px}
+.tri button{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:20px;padding:5px 11px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.tri button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.niv-bar{display:flex;height:14px;border-radius:99px;overflow:hidden;background:var(--surface-2);margin:6px 0 10px}
+/* une barre de progression sans style propre (objectifs, projets) : un fond et un remplissage visibles */
+.track{height:8px;background:var(--surface-2);border-radius:6px;overflow:hidden} .track>.fill{height:100%;border-radius:6px}
+.etq{font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:2px 7px;border-radius:20px;white-space:nowrap;vertical-align:middle}
+/* un petit résumé en lignes (libellé à gauche, montant à droite) : lisible sur téléphone, contrairement à trois cases côte à côte */
+.resume{background:var(--surface-2);border-radius:13px;padding:2px 14px;margin-bottom:6px}
+.resume>div{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.resume>div:last-child{border-bottom:none}
+.resume>div>b{white-space:nowrap;font-size:15px}
+.big{font-size:22px;font-weight:800;letter-spacing:-.5px}
 .seg button.on-ent{background:var(--pos);color:#fff}
 .seg button.on-tr{background:var(--info);color:#fff}
 .btn{width:100%;border:none;background:var(--accent);color:#fff;font:inherit;font-weight:700;font-size:16px;
@@ -280,7 +311,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v11 · 14/10</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v13 · 15/10</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -345,7 +376,8 @@ let UI={tab:"dash", type:"dep", month:"all", edit:null};
 let MEM={};
 const STORE={
   get(k){ try{return localStorage.getItem(k);}catch(e){return (k in MEM)?MEM[k]:null;} },
-  set(k,v){ try{localStorage.setItem(k,v);}catch(e){MEM[k]=v;} }
+  set(k,v){ try{localStorage.setItem(k,v);}catch(e){MEM[k]=v;} },
+  del(k){ try{localStorage.removeItem(k);}catch(e){} delete MEM[k]; }
 };
 function seedTx(){
   return APPDATA.transactions.map((t,i)=>({
@@ -397,6 +429,11 @@ function ensureDefaults(){
   if(!DB.congesDepuis) DB.congesDepuis = todayISO().slice(0,8)+"01";
   if(!DB.periodes||typeof DB.periodes!=="object") DB.periodes={};   /* période de paie retenue, par mois : {"2026-07":{du,au}} */
   DB.categories.forEach(c=>{ if(typeof c.besoin!=="boolean") c.besoin = BESOIN_DEFAUT[c.name]!==undefined?BESOIN_DEFAUT[c.name]:true; });
+  /* migration : niveau (🔒 obligatoire, 🧷 essentiel, 🎈 plaisir, ✂️ évitable) repris de l'ancien essentiel / envie, catégorie et sous-catégories */
+  /* setNiveau garde toujours besoin d'accord avec le niveau : un désaccord vient d'une ancienne version (v11), son choix l'emporte */
+  DB.categories.forEach(c=>{ if(!NIVEAUX[c.niveau]||(typeof c.besoin==="boolean"&&estBesoin(c.niveau)!==c.besoin)) c.niveau=c.besoin===false?"plaisir":"essentiel";
+    if(c.subsBesoin&&typeof c.subsBesoin==="object"){ c.subsNiveau=c.subsNiveau||{};
+      Object.keys(c.subsBesoin).forEach(s=>{ const b=c.subsBesoin[s]; if(typeof b==="boolean"&&(!NIVEAUX[c.subsNiveau[s]]||estBesoin(c.subsNiveau[s])!==b)) c.subsNiveau[s]=b?"essentiel":"plaisir"; }); } });
   /* migration : ancienne double-saisie €/an → tout ramené en mensuel (÷12) dans c.budget */
   DB.categories.forEach(c=>{ if(c.budgetAn!=null){ c.budget=Math.round(((+c.budget||0)+(+c.budgetAn||0)/12)*100)/100; delete c.budgetAn; } });
   /* migration : genre de chaque catégorie (dépense / paye / argent), deviné une fois — modifiable dans Réglages → Catégories */
@@ -422,7 +459,7 @@ function loadLocal(){
 }
 function load(){ loadLocal(); }
 function saveLocal(){ STORE.set("monbudget4", JSON.stringify(DB)); }
-function save(){ saveLocal(); schedulePush(); }
+function save(){ saveLocal(); marquerModifie(); schedulePush(); }
 function resetAll(){ if(!confirm("Réinitialiser toutes les données aux valeurs de départ ? (tes ajouts seront perdus)")) return;
   DB={transactions:seedTx(),accounts:defaultAccounts(),categories:defaultCategories(),future:[]}; save(); toast("Réinitialisé"); go("dash"); }
 
@@ -435,22 +472,165 @@ function updateTop(){ const el=document.getElementById("topSub"); if(!el)return;
   const dispo=eur0(disponible(bal));
   const tag = !sb? " · 🔒 hors-ligne" : !SB_USER? " · 🔒 hors-ligne" : syncState==="saving"? " · ⏳ sync…" : syncState==="error"? " · ⚠️ sync" : " · ☁️ synchronisé";
   el.textContent="Disponible : "+dispo+tag; }
-async function pullCloud(){
-  if(!sb||!SB_USER) return;
-  try{ const {data,error}=await sb.from("app_state").select("data").eq("user_id",SB_USER.id).maybeSingle();
-    if(error) throw error;
-    if(data&&data.data&&Array.isArray(data.data.transactions)){ DB=data.data; ensureDefaults(); saveLocal(); }
-    else { ensureDefaults(); await pushCloud(); }
-    syncState="cloud";
-  }catch(e){ console.error("pullCloud",e); syncState="error"; }
+/* Ce que l'appareil sait du cloud, gardé HORS de DB (localStorage) :
+   - "monbudget4-modif" : posé par save(), retiré quand le cloud a tout reçu = « modifié ici, pas encore envoyé » ;
+   - "monbudget4-sync"  : {user, at, base} = la dernière version du cloud vue ou écrite ici : son updated_at
+     et son empreinte (un hachage par clé de DB, et par élément des listes), le point commun pour fusionner.
+   SYNC et MODIF en mémoire sont propres à l'onglet (repris de localStorage au démarrage) : l'envoi d'un autre onglet
+   ne doit ni lui faire croire que le cloud n'a pas bougé, ni effacer ce que lui n'a pas encore envoyé. */
+const CLE_MODIF="monbudget4-modif", CLE_SYNC="monbudget4-sync";
+let SYNC=null, MODIF=null, pullP=null, pushP=null, pushEncore=false;
+function marquerModifie(){ MODIF=Date.now()+"."+Math.random().toString(36).slice(2,6); STORE.set(CLE_MODIF,MODIF); }
+function modifie(){ if(MODIF===null) MODIF=STORE.get(CLE_MODIF)||""; return MODIF; }
+function effacerModifie(marque){ if(!marque) return;   /* sauf si une saisie est arrivée entre-temps (autre marque) */
+  if(MODIF===marque) MODIF=""; if(STORE.get(CLE_MODIF)===marque) STORE.del(CLE_MODIF); }
+function syncLu(){ if(!SYNC){ try{ SYNC=JSON.parse(STORE.get(CLE_SYNC)||"null"); }catch(e){} if(!SYNC||typeof SYNC!=="object") SYNC={}; } return SYNC; }
+function syncAt(){ const s=syncLu(); return s.user===SB_USER.id? s.at||null : undefined; }   /* undefined = jamais vu pour ce compte */
+function retenir(at,base){ if(!SB_USER) return; SYNC={user:SB_USER.id,at:at||null,base};
+  try{ localStorage.setItem(CLE_SYNC,JSON.stringify(SYNC)); }catch(e){ STORE.del(CLE_SYNC); } }   /* plutôt rien qu'une base périmée */
+
+/* Empreintes : JSON aux clés triées (le jsonb du cloud ne garde pas l'ordre des clés), haché sur 53 bits */
+function canon(v){ return JSON.stringify(v,(k,x)=>x&&typeof x==="object"&&!Array.isArray(x)? Object.keys(x).sort().reduce((o,c)=>(o[c]=x[c],o),{}) : x)||"∅"; }
+function hacher(s){ let h1=0xdeadbeef,h2=0x41c6ce57;
+  for(let i=0;i<s.length;i++){ const c=s.charCodeAt(i); h1=Math.imul(h1^c,2654435761); h2=Math.imul(h2^c,1597334677); }
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909); h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return (4294967296*(2097151&h2)+(h1>>>0)).toString(36); }
+const emp1=v=>hacher(canon(v));
+/* listes fusionnées élément par élément, avec le champ qui reconnaît un élément ; les objets (prefs, trained, payes…) le sont clé par clé */
+const SYNC_LISTES={transactions:"id",future:"id",accounts:"id",banques:"id",cashCounts:"id",horaires:"id",vacances:"id",objectifs:"id",cryptoTrack:"id",categories:"name",libelles:"txt"};
+function elements(k,v){   /* [[clé, élément]…], ou null pour une valeur prise d'un bloc */
+  if(Array.isArray(v)){ const f=SYNC_LISTES[k]; if(!f) return null; const vus={};
+    return v.map(x=>{ let c=x&&typeof x==="object"&&x[f]!=null? "="+x[f] : "#"+emp1(x); vus[c]=(vus[c]||0)+1; if(vus[c]>1) c+="~"+vus[c]; return [c,x]; }); }
+  if(v&&typeof v==="object") return Object.keys(v).map(c=>[c,v[c]]);
+  return null;
 }
-async function pushCloud(){
-  if(!sb||!SB_USER) return;
-  try{ const {error}=await sb.from("app_state").upsert({user_id:SB_USER.id,data:DB,updated_at:new Date().toISOString()}); if(error) throw error; syncState="cloud"; }
-  catch(e){ console.error("pushCloud",e); syncState="error"; }
-  updateTop();
+function empreinte(db){ const e={};
+  Object.keys(db||{}).forEach(k=>{ const v=db[k], els=elements(k,v);
+    if(!els){ e[k]={h:emp1(v)}; return; }
+    const i={}; els.forEach(([c,x])=>{ i[c]=emp1(x); });
+    const cles=els.map(x=>x[0]); if(!Array.isArray(v)) cles.sort();   /* l'ordre compte dans une liste, pas dans un objet */
+    e[k]={h:hacher((Array.isArray(v)?"[":"{")+cles.map(c=>c+":"+i[c]).join(",")), i, o:hacher(cles.join("\n"))}; });
+  return e; }
+function memes(a,b){ const ka=Object.keys(a); return ka.length===Object.keys(b).length&&ka.every(k=>b[k]&&b[k].h===a[k].h); }
+
+/* Fusion à trois : B = empreinte de la dernière version commune, L = ici, R = le cloud. Clé par clé, puis élément par élément :
+   changé d'un seul côté → ce côté ; des deux côtés → le plus récent (majLe), sinon celui d'ici ;
+   supprimé d'un côté et inchangé de l'autre → supprimé ; supprimé d'un côté mais modifié de l'autre → gardé. */
+function fusion3(B,L,R,eL,eR){ const M={};
+  new Set([...Object.keys(L),...Object.keys(R)]).forEach(k=>{ const b=B[k], l=eL[k], r=eR[k];
+    if(!l||!r){ const ex=l||r; if(!b||b.h!==ex.h) M[k]=(l?L:R)[k]; return; }
+    if(l.h===r.h||(b&&r.h===b.h)) M[k]=L[k];
+    else if(b&&l.h===b.h) M[k]=R[k];
+    else M[k]=fusionElements(k,b,L[k],R[k],l.i,r.i); });
+  return M; }
+function fusionElements(k,b,Lv,Rv,il,ir){
+  const el=elements(k,Lv), er=elements(k,Rv);
+  if(!el||!er||Array.isArray(Lv)!==Array.isArray(Rv)) return Lv;   /* valeur d'un bloc changée des deux côtés : celle d'ici */
+  const bi=(b&&b.i)||{}, ml=new Map(el), mr=new Map(er), garde=new Map();
+  const plusRecent=(x,y)=> x&&y&&x.majLe&&y.majLe&&y.majLe>x.majLe? y : x;
+  new Set([...ml.keys(),...mr.keys()]).forEach(c=>{ const bh=bi[c];
+    if(ml.has(c)&&mr.has(c)) garde.set(c, il[c]===ir[c]||ir[c]===bh? ml.get(c) : il[c]===bh? mr.get(c) : plusRecent(ml.get(c),mr.get(c)));
+    else if(ml.has(c)){ if(bh===undefined||il[c]!==bh) garde.set(c,ml.get(c)); }   /* ajouté ici, ou modifié ici et supprimé là-bas */
+    else if(bh===undefined||ir[c]!==bh) garde.set(c,mr.get(c)); });
+  if(!Array.isArray(Lv)){ const o={}; garde.forEach((x,c)=>{ o[c]=x; }); return o; }
+  /* ordre : celui du côté qui l'a changé (ici, sinon le cloud), les ajouts de l'autre côté glissés après leur voisin */
+  const ol=el.map(x=>x[0]), or=er.map(x=>x[0]), [ordre,autre]=b&&b.o!==hacher(ol.join("\n"))? [ol.slice(),or] : [or.slice(),ol], pos=new Set(ordre);
+  autre.forEach((c,j)=>{ if(pos.has(c)) return; let p=j-1; while(p>=0&&!pos.has(autre[p])) p--;
+    ordre.splice(p<0?0:ordre.indexOf(autre[p])+1,0,c); pos.add(c); });
+  return ordre.filter(c=>garde.has(c)).map(c=>garde.get(c)); }
+/* aucune version commune connue (premier passage de cet appareil pour ce compte) : le cloud fait foi,
+   on y ajoute seulement les saisies d'ici qu'il n'a pas (sauf les opérations d'exemple) */
+function fusionSansBase(L,R){ const M=Object.assign({},R);
+  ["transactions","future","cashCounts","horaires","vacances","objectifs"].forEach(k=>{ if(!Array.isArray(L[k])) return;
+    const r=Array.isArray(R[k])?R[k]:[], ids=new Set(r.map(x=>x&&x.id));
+    const plus=L[k].filter(x=>x&&x.id!=null&&!ids.has(x.id)&&!/^seed/.test(x.id)); if(plus.length) M[k]=r.concat(plus); });
+  return M; }
+function normaliser(data){ const ici=DB; try{ DB=data; ensureDefaults(); return DB; } finally{ DB=ici; } }   /* mêmes migrations que les données d'ici */
+
+/* Une version du cloud arrive : rien n'attend d'être envoyé ici → on la prend telle quelle ; sinon on fusionne.
+   Renvoie vrai si DB a changé (il faut redessiner). */
+function recevoir(row){
+  const R=normaliser(row.data), eR=empreinte(R), marque=modifie(), avant=empreinte(DB), s=syncLu();
+  const base=s.user===SB_USER.id&&s.base&&typeof s.base==="object"? s.base : null;
+  if(memes(avant,eR)){ retenir(row.updated_at,eR); effacerModifie(marque); return false; }
+  if(!marque) DB=R;
+  else { DB=base? fusion3(base,DB,R,avant,eR) : fusionSansBase(DB,R); ensureDefaults();
+    console.info("☁️ Fusion avec la version du cloud du "+row.updated_at+(base?"":" (sans version commune)")); }
+  saveLocal(); retenir(row.updated_at,eR);
+  const apres=marque? empreinte(DB) : eR;
+  if(marque&&memes(apres,eR)) effacerModifie(marque);   /* rien d'ici que le cloud n'ait déjà */
+  return !memes(apres,avant);
+}
+/* après une fusion en arrière-plan : on redessine, sauf pendant une saisie (on ne vide pas le formulaire en cours) */
+function rafraichir(){ const f=document.activeElement, m=document.getElementById("main");
+  if(UI.tab==="saisie"||(f&&m&&m.contains(f)&&/^(INPUT|SELECT|TEXTAREA)$/.test(f.tagName))){ updateTop(); return; }
+  render(); }
+
+/* Lire le cloud (démarrage, connexion). Jamais en même temps qu'un envoi : une réponse partie avant l'envoi
+   remplacerait sinon les données d'ici par une version plus ancienne. */
+function pullCloud(){
+  if(!sb||!SB_USER) return Promise.resolve();
+  if(!pullP) pullP=(async()=>{
+    try{ if(pushP) await pushP;
+      const {data,error}=await sb.from("app_state").select("data,updated_at").eq("user_id",SB_USER.id).maybeSingle();
+      if(error) throw error;
+      if(data&&data.data&&Array.isArray(data.data.transactions)) recevoir(data);
+      else { ensureDefaults(); retenir(null,{}); marquerModifie(); }   /* cloud vide : on y met les données d'ici */
+      syncState="cloud";
+      if(modifie()) pushCloud();   /* des modifications d'ici attendaient : on les envoie (sans bloquer l'affichage) */
+    }catch(e){ console.error("pullCloud",e); syncState="error"; }
+    finally{ pullP=null; }
+  })();
+  return pullP;
+}
+/* Envoie DB au cloud sans jamais écraser ce qu'un autre appareil y a mis entre-temps. Un seul envoi à la fois. */
+function pushCloud(){
+  if(!sb||!SB_USER) return Promise.resolve();
+  clearTimeout(pushT);
+  if(pushP){ pushEncore=true; return pushP; }
+  syncState="saving"; updateTop();
+  pushP=(async()=>{
+    try{ if(pullP) await pullP;
+      do{ pushEncore=false; await envoyer(); }while(pushEncore&&SB_USER); syncState="cloud"; }
+    catch(e){ console.error("pushCloud",e); syncState="error"; }
+    finally{ pushP=null; if(syncState==="cloud"&&modifie()) syncState="saving"; updateTop(); }
+  })();
+  return pushP;
+}
+async function envoyer(){
+  if(!modifie()) return;   /* rien à envoyer */
+  const id=SB_USER.id;
+  for(let essai=0;essai<5;essai++){
+    /* 1) relire updated_at : si le cloud a bougé depuis notre dernier passage, on prend sa version et on fusionne */
+    const lu=await sb.from("app_state").select("updated_at").eq("user_id",id).maybeSingle();
+    if(lu.error) throw lu.error;
+    let at=lu.data? lu.data.updated_at : null;
+    if(at!==syncAt()){
+      if(at){ const {data,error}=await sb.from("app_state").select("data,updated_at").eq("user_id",id).maybeSingle();
+        if(error) throw error;
+        at=data? data.updated_at : null;
+        if(data&&data.data&&Array.isArray(data.data.transactions)&&recevoir(data)){ rafraichir(); toast("🔄 Mis à jour avec ton autre appareil"); } }
+      else retenir(null,{});   /* plus de ligne dans le cloud : on la recrée */
+    }
+    const marque=modifie();
+    if(!marque) return;   /* la fusion n'a rien laissé à envoyer */
+    /* 2) écrire, seulement si personne n'a écrit depuis la lecture (sinon : on recommence) */
+    const envoi=JSON.parse(JSON.stringify(DB)), neuf=new Date().toISOString();
+    const r= at? await sb.from("app_state").update({data:envoi,updated_at:neuf}).eq("user_id",id).eq("updated_at",at).select("updated_at")
+               : await sb.from("app_state").insert({user_id:id,data:envoi,updated_at:neuf}).select("updated_at");
+    if(r.error){ if(!at&&r.error.code==="23505") continue; throw r.error; }   /* la ligne vient d'être créée ailleurs */
+    if(!r.data||!r.data.length){ console.info("☁️ Le cloud a changé pendant l'envoi : on relit et on fusionne"); continue; }
+    retenir(r.data[0].updated_at,empreinte(envoi)); effacerModifie(marque);
+    return;
+  }
+  throw new Error("le cloud change sans arrêt : on réessaiera");
 }
 function schedulePush(){ if(!sb||!SB_USER) return; syncState="saving"; updateTop(); clearTimeout(pushT); pushT=setTimeout(pushCloud,1200); }
+/* envoyer tout de suite quand l'app passe en arrière-plan ou se ferme, et réessayer quand le réseau revient */
+function envoyerSiBesoin(){ if(sb&&SB_USER&&modifie()) pushCloud(); }
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") envoyerSiBesoin(); });
+window.addEventListener("pagehide",envoyerSiBesoin);
+window.addEventListener("online",envoyerSiBesoin);
 
 /* ---------- Écran de connexion ---------- */
 function showLogin(){ const o=document.getElementById("authOverlay"); if(!o)return; o.classList.add("show");
@@ -533,7 +713,6 @@ function activeCats(){ return DB.categories.filter(c=>c.active); }
 function catObj(name){ return DB.categories.find(c=>c.name===name); }
 function subsOf(name){ const c=catObj(name); return c?c.subs:[]; }
 function catEmoji(name){ const c=catObj(name); return c?c.emoji:(CAT_EMOJI[name]||"💸"); }
-function subBudget(label){ const s=APPDATA.reference.sousCategories.find(x=>x.label.trim()===(label||"").trim()); return s?s.budget:0; }
 
 /* ---------- Modèle comptable ---------- */
 function isActivation(t){ return (t.note||"").trim().toLowerCase()==="activation"; }
@@ -596,9 +775,10 @@ function argentTotaux(list){ let recu=0,donne=0; list.filter(isArgentTx).forEach
    Même personne quelle que soit la catégorie Argent et la casse (« paul » = « Paul ») ; sans personne : rangé sous sa catégorie */
 function argentParPersonne(){ const by={};
   DB.transactions.filter(isArgentTx).forEach(t=>{ const p=(t.sousCategorie||"").trim(), k=p?"p:"+p.toLowerCase():"c:"+(t.categorie||"");
-    const e=by[k]||(by[k]={nom:p,cat:p?"":(t.categorie||""),recu:0,donne:0});
-    if(t.montant>0) e.recu+=t.montant; else e.donne+=-t.montant; });
-  return Object.values(by).map(e=>({nom:e.nom,cat:e.cat,recu:Math.round(e.recu*100)/100,donne:Math.round(e.donne*100)/100,solde:Math.round((e.recu-e.donne)*100)/100}))
+    const e=by[k]||(by[k]={nom:p,cat:p?"":(t.categorie||""),recu:0,donne:0,ops:[]});
+    if(t.montant>0) e.recu+=t.montant; else e.donne+=-t.montant; e.ops.push(t); });
+  return Object.values(by).map(e=>({nom:e.nom,cat:e.cat,recu:Math.round(e.recu*100)/100,donne:Math.round(e.donne*100)/100,solde:Math.round((e.recu-e.donne)*100)/100,
+      ops:e.ops.sort((a,b)=>(b.date||"").localeCompare(a.date||""))}))
     .sort((a,b)=>Math.abs(b.solde)-Math.abs(a.solde)||a.nom.localeCompare(b.nom)); }
 /* le SENS d'une opération, pour la liste des opérations (filtre Dépense / Entrée), quelle que soit sa catégorie */
 function estSortie(t){ return t.montant<0 && !isTransfer(t); }
@@ -640,13 +820,44 @@ const BESOIN_DEFAUT={
   "Santé":true,"Abonnements":true,"Maison & Tech":true,"Divers & Remboursements":true,
   "Sorties & Restaurants":false,"Beauté & Mode":false,"Loisirs & Passions":false,"Cadeaux & Fêtes":false
 };
-function catBesoin(name){ const c=(DB.categories||[]).find(x=>x.name===name); if(c&&typeof c.besoin==="boolean")return c.besoin;
-  return BESOIN_DEFAUT[name]!==undefined?BESOIN_DEFAUT[name]:true; }
+/* Ce que tu dis aux agents de l'analyse, pour chaque catégorie de dépense et, si tu veux, chaque sous-catégorie.
+   Obligatoire + essentiel = un besoin (le rapport les compte en « essentiel ») ; plaisir + évitable = une envie. */
+const NIVEAUX={obligatoire:{emo:"🔒",lbl:"Obligatoire",aide:"je ne peux pas y couper : assurance, crédit, loyer…"},
+  essentiel:{emo:"🧷",lbl:"Essentiel",aide:"un vrai besoin, mais le montant peut bouger : courses, essence, santé…"},
+  plaisir:{emo:"🎈",lbl:"Plaisir",aide:"une envie que je m'accorde : sorties, beauté, loisirs…"},
+  evitable:{emo:"✂️",lbl:"Évitable",aide:"je pourrais m'en passer"}};
+function estBesoin(n){ return n==="obligatoire"||n==="essentiel"; }
+function niveauCat(c){ return c&&NIVEAUX[c.niveau]?c.niveau:(c&&c.besoin===false?"plaisir":"essentiel"); }
+/* le niveau d'une sous-catégorie si tu l'as précisé, sinon celui de sa catégorie */
+function niveauOf(catName, sub){ const c=catObj(catName);
+  if(!c) return BESOIN_DEFAUT[catName]===false?"plaisir":"essentiel";
+  if(sub&&c.subsNiveau&&NIVEAUX[c.subsNiveau[sub]]) return c.subsNiveau[sub];
+  return niveauCat(c); }
+function catBesoin(name){ return estBesoin(niveauOf(name,"")); }
 /* essentiel ou non, au niveau de la sous-catégorie si précisé, sinon au niveau de la catégorie */
-function besoinOf(catName, sub){ const c=(DB.categories||[]).find(x=>x.name===catName);
-  if(c&&sub&&c.subsBesoin&&typeof c.subsBesoin[sub]==="boolean") return c.subsBesoin[sub];
-  return catBesoin(catName); }
-function setSubBesoin(i, sub, v){ const c=DB.categories[i]; if(!c)return; if(!c.subsBesoin)c.subsBesoin={}; c.subsBesoin[sub]=!!v; save(); render(); }
+function besoinOf(catName, sub){ return estBesoin(niveauOf(catName,sub)); }
+/* sub vide = la catégorie entière ; v vide = la sous-catégorie suit sa catégorie. L'ancien essentiel / envie suit. */
+function setNiveau(i, sub, v){ const c=DB.categories[i]; if(!c) return;
+  if(!sub){ if(!NIVEAUX[v]) return; c.niveau=v; c.besoin=estBesoin(v); }
+  else { c.subsNiveau=c.subsNiveau||{}; c.subsBesoin=c.subsBesoin||{};
+    if(NIVEAUX[v]){ c.subsNiveau[sub]=v; c.subsBesoin[sub]=estBesoin(v); } else { delete c.subsNiveau[sub]; delete c.subsBesoin[sub]; } }
+  save(); render(); }
+function setSubBesoin(i, sub, v){ setNiveau(i, sub, v?"essentiel":"plaisir"); }
+/* le menu « niveau » : pour une sous-catégorie, la 1re option = suivre la catégorie */
+function nivSelect(i, sub, val, herite){
+  const opts=(sub?`<option value="" ${!val?"selected":""}>↳ comme la catégorie (${NIVEAUX[herite].emo} ${NIVEAUX[herite].lbl})</option>`:"")
+    +Object.keys(NIVEAUX).map(k=>`<option value="${k}" ${val===k?"selected":""}>${NIVEAUX[k].emo} ${NIVEAUX[k].lbl}</option>`).join("");
+  return `<select class="nivsel" data-s="${escH(sub||"")}" onchange="setNiveau(${i},this.dataset.s,this.value)" title="Pour l'analyse : obligatoire, essentiel, plaisir ou évitable">${opts}</select>`; }
+/* limite d'une sous-catégorie (€/mois, facultative) : elle se range DANS la limite de sa catégorie */
+function subPlafond(c, s){ return Math.round((+((c&&c.subsBudget)||{})[s]||0)*100)/100; }
+function subsRepartis(c){ return Math.round((c.subs||[]).reduce((a,s)=>a+subPlafond(c,s),0)*100)/100; }
+function setSubBudget(i, s, v){ const c=DB.categories[i]; if(!c||!s) return; c.subsBudget=c.subsBudget||{};
+  const n=Math.max(0,parseFloat(String(v).replace(",","."))||0), avant=subPlafond(c,s);
+  if(n>0) c.subsBudget[s]=Math.round(n*100)/100; else delete c.subsBudget[s];
+  /* les sous-catégories ne tiennent plus dans l'enveloppe : elle s'agrandit (jamais si elle n'a pas de limite, ni quand on baisse) */
+  const rep=subsRepartis(c), monte=catPlafond(c)>0&&n>avant&&rep>catPlafond(c)+0.005;
+  if(monte) c.budget=rep;
+  save(); render(); toast("✅ "+s+" : "+(n>0?eur(n)+"/mois":"sans limite")+(monte?" · « "+c.name+" » passe à "+eur(rep)+"/mois":"")); }
 function depByBesoin(m){ let besoin=0,envie=0; const byCatB={},byCatE={}, det=depNettes(txOfMonth(m));
   Object.keys(det).forEach(c=>Object.keys(det[c].subs).forEach(sub=>{ const v=det[c].subs[sub], label=sub?c+" / "+sub:c;
     if(besoinOf(c,sub)){besoin+=v;byCatB[label]=(byCatB[label]||0)+v;} else {envie+=v;byCatE[label]=(byCatE[label]||0)+v;} }));
@@ -743,16 +954,18 @@ const Vigie = {
   scan(m){
     const out=[]; const refMonth = m==="all"? new Date().getMonth() : m;
     const tx=txOfMonth(refMonth);
-    const spent={}; tx.filter(t=>pese(t)&&t.sousCategorie).forEach(t=>{ spent[t.sousCategorie]=(spent[t.sousCategorie]||0)+depVal(t); });
-    const over=[],risk=[];
-    Object.keys(spent).forEach(sc=>{ const b=subBudget(sc); if(b>0){ const r=spent[sc]/b; if(r>1)over.push([sc,spent[sc],b,r]); else if(r>=.8)risk.push([sc,spent[sc],b,r]); }});
+    /* tes limites (Budget → Enveloppes) : celle de la catégorie et celles des sous-catégories, sur les dépenses nettes */
+    const det=depNettes(tx), over=[],risk=[];
+    const chk=(lbl,v,b)=>{ if(b>0){ const r=v/b; if(r>1)over.push([lbl,v,b,r]); else if(r>=.8)risk.push([lbl,v,b,r]); } };
+    DB.categories.filter(c=>genreDe(c)==="depense").forEach(c=>{ const d=det[c.name]; if(!d) return;
+      chk(c.name,d.tot,catPlafond(c)); (c.subs||[]).forEach(s=>chk(c.name+" / "+s,d.subs[s]||0,subPlafond(c,s))); });
     over.sort((a,b)=>b[3]-a[3]); risk.sort((a,b)=>b[3]-a[3]);
-    over.slice(0,5).forEach(o=>out.push({em:"🚨",txt:`Budget <b>${o[0]}</b> dépassé : ${eur(o[1])} pour ${eur(o[2])} prévus (<b class="neg">+${Math.round((o[3]-1)*100)}%</b>).`}));
-    risk.slice(0,4).forEach(o=>out.push({em:"⚠️",txt:`Budget <b>${o[0]}</b> bientôt atteint : ${eur(o[1])} / ${eur(o[2])} (${Math.round(o[3]*100)}%).`}));
+    over.slice(0,5).forEach(o=>out.push({em:"🚨",txt:`Budget <b>${escH(o[0])}</b> dépassé : ${eur(o[1])} pour ${eur(o[2])} prévus (<b class="neg">+${Math.round((o[3]-1)*100)}%</b>).`}));
+    risk.slice(0,4).forEach(o=>out.push({em:"⚠️",txt:`Budget <b>${escH(o[0])}</b> bientôt atteint : ${eur(o[1])} / ${eur(o[2])} (${Math.round(o[3]*100)}%).`}));
     const deps=tx.filter(isDepense).map(t=>Math.abs(t.montant));
     if(deps.length>3){ const avg=deps.reduce((a,b)=>a+b,0)/deps.length;
       tx.filter(t=>isDepense(t)&&Math.abs(t.montant)>avg*3&&Math.abs(t.montant)>50).sort((a,b)=>a.montant-b.montant).slice(0,3)
-        .forEach(t=>out.push({em:"🔍",txt:`Dépense inhabituelle : <b>${eur(Math.abs(t.montant))}</b> — ${t.note||t.sousCategorie||t.categorie} (${frDate(t.date)}), soit ${(Math.abs(t.montant)/avg).toFixed(1)}× ta moyenne.`}));
+        .forEach(t=>out.push({em:"🔍",txt:`Dépense inhabituelle : <b>${eur(Math.abs(t.montant))}</b> — ${escH(t.note||t.sousCategorie||t.categorie)} (${frDate(t.date)}), soit ${(Math.abs(t.montant)/avg).toFixed(1)}× ta moyenne.`}));
     }
     const up=upcoming(7); if(up.length) out.push({em:"📅",txt:`<b>${up.length}</b> paiement(s) prévu(s) dans les 7 prochains jours, pour <b>${eur0(up.reduce((a,f)=>a+Math.abs(f.montant),0))}</b>.`});
     if(!out.length) out.push({em:"✅",txt:`Tout est sous contrôle pour <b>${MONTHS[refMonth]}</b>.`});
@@ -783,7 +996,7 @@ const Devin = {
     const spent=depTotal(txOfMonth(refMonth));
     let elapsed=(refMonth===now.getMonth()&&now.getFullYear()===year)?now.getDate():dim; elapsed=Math.max(elapsed,1);
     const projMonth=spent/elapsed*dim;
-    const totalBudget=APPDATA.reference.sousCategories.filter(s=>s.types.includes("DpE")||s.types.includes("DpI")||s.types.includes("EpC")).reduce((a,s)=>a+s.budget,0);
+    const totalBudget=DB.categories.filter(c=>c.active&&genreDe(c)==="depense").reduce((a,c)=>a+catPlafond(c),0);   /* tes limites d'enveloppes */
     const totYear=depTotal(DB.transactions);
     const monthsElapsed=now.getFullYear()===year?(now.getMonth()+now.getDate()/dim):12;
     const projYear=monthsElapsed>0?totYear/monthsElapsed*12:totYear;
@@ -791,6 +1004,128 @@ const Devin = {
   }
 };
 
+/* ---------- Analyse des dépenses (Budget → 🔎 Analyse) ----------
+   Six agents lisent tes opérations, tes limites et ce que tu leur as dit (🔒 obligatoire, 🧷 essentiel, 🎈 plaisir, ✂️ évitable).
+   Tout est calculé sur l'appareil, rien ne part sur Internet. Sur « Toute l'année », les montants « par mois » sont des moyennes. */
+const SEP="\u0001";   /* sépare catégorie et sous-catégorie dans une clé (aucun nom ne le contient) */
+const Analyste={
+  run(m){
+    const annee=m==="all", ms=monthsWithDep().sort((a,b)=>a-b), nb=annee?Math.max(1,moisRenseignes().length):1;   /* même nombre de mois que les Enveloppes */
+    const det=depNettes(txOfMonth(m)), lignes=[];
+    Object.keys(det).forEach(cn=>{ const c=catObj(cn); Object.keys(det[cn].subs).forEach(s=>{ const v=det[cn].subs[s]; if(v<0.005) return;
+      lignes.push({cat:cn,sub:s,v,niv:niveauOf(cn,s),lim:c&&s&&(c.subs||[]).indexOf(s)>=0?subPlafond(c,s)*nb:0}); }); });
+    const total=Object.values(det).reduce((a,x)=>a+x.tot,0);
+    /* ⚖️ la balance : combien par niveau */
+    const split={obligatoire:0,essentiel:0,plaisir:0,evitable:0}; lignes.forEach(l=>{ split[l.niv]+=l.v; });
+    /* 🎯 le contrôleur : au-dessus de la limite (enveloppe, sous-catégorie), et ce qui n'a pas de limite */
+    const depasse=Object.keys(det).map(cn=>{ const c=catObj(cn), lim=c?catPlafond(c)*nb:0; return {cat:cn,v:det[cn].tot,lim,plus:det[cn].tot-lim}; })
+      .filter(x=>x.lim>0&&x.plus>0.005).sort((a,b)=>b.plus-a.plus);
+    const subDepasse=lignes.filter(l=>l.lim>0&&l.v>l.lim+0.005).map(l=>Object.assign({plus:l.v-l.lim},l)).sort((a,b)=>b.plus-a.plus);
+    const sansLimite=Object.keys(det).filter(cn=>{ const c=catObj(cn); return !(c&&catPlafond(c)>0); }).map(cn=>({cat:cn,v:det[cn].tot})).sort((a,b)=>b.v-a.v);
+    /* ✂️ le chasseur : ce que tu as marqué évitable, et tes plaisirs */
+    const evitables=lignes.filter(l=>l.niv==="evitable").sort((a,b)=>b.v-a.v), plaisirs=lignes.filter(l=>l.niv==="plaisir").sort((a,b)=>b.v-a.v);
+    /* 📈 la sentinelle : un mois comparé à la moyenne de tes autres mois (sur l'année : le dernier mois saisi) */
+    const ref=annee?ms[ms.length-1]:m, autres=ms.filter(mo=>mo!==ref), hausses=[];
+    if(ref!=null&&autres.length>=2){ const dRef=annee?depNettes(txOfMonth(ref)):det, dAut=autres.map(mo=>depNettes(txOfMonth(mo)));
+      Object.keys(dRef).forEach(cn=>Object.keys(dRef[cn].subs).forEach(s=>{ const cur=dRef[cn].subs[s], niv=niveauOf(cn,s); if(niv==="obligatoire") return;
+        const hab=dAut.reduce((a,d)=>a+((d[cn]&&d[cn].subs[s])||0),0)/dAut.length;
+        if(cur>=hab*1.3&&cur-hab>=15) hausses.push({cat:cn,sub:s,v:cur,hab,plus:cur-hab,niv}); }));
+      hausses.sort((a,b)=>b.plus-a.plus); }
+    /* 🔁 le détective : ce qui revient d'un mois sur l'autre, sur toute l'année, regroupé par libellé.
+       Un abonnement = un prélèvement, un paiement à venir qui se répète, ou un même prix chaque mois dans une catégorie
+       d'abonnement (abonnements, logiciels, applis, assurance, téléphone…) ; le reste = un achat qui revient souvent */
+    const rec={}, nouveau=(cat,sub)=>({cat,sub,noms:{},tot:0,n:0,mois:{},mn:Infinity,mx:0,der:"",pl:0});
+    DB.transactions.forEach(t=>{ if(!isDepense(t)) return; const k=cleLib(t.note), mo=monthOf(t.date); if(!k||mo==null) return;
+      const key=(t.categorie||"")+SEP+(t.sousCategorie||"")+SEP+k, e=rec[key]||(rec[key]=nouveau(t.categorie||"",t.sousCategorie||"")), a=Math.abs(t.montant), nm=t.note.trim();
+      e.noms[nm]=(e.noms[nm]||0)+1; e.tot+=a; e.n++; e.mois[mo]=1; e.mn=Math.min(e.mn,a); e.mx=Math.max(e.mx,a);
+      if((t.date||"")>e.der) e.der=t.date; if(t.moyen==="PL") e.pl++; });
+    const today=todayISO();
+    (DB.future||[]).forEach(f=>{ const fr=f.freq||"ponctuel"; if(f.statut!=="prévu"||fr==="ponctuel"||f.type==="transfer"||!(f.montant<0)) return;
+      const k=cleLib(f.nom); if(!k) return; const key=(f.categorie||"")+SEP+(f.sousCategorie||"")+SEP+k, e=rec[key]||(rec[key]=nouveau(f.categorie||"",f.sousCategorie||""));
+      if(!Object.keys(e.noms).length) e.noms[f.nom.trim()]=1;
+      e.prevu=Math.abs(f.montant)/(fr==="annuel"?12:fr==="trimestriel"?3:1);
+      if(f.date>=today&&(!e.prochain||f.date<e.prochain)) e.prochain=f.date; });
+    const abonnements=[], reguliers=[];
+    const motAbo=/abonn|logiciel|appli|stream|forfait|assurance|mutuelle|box|t[ée]l[ée]phone|internet|loyer|cr[ée]dit/i;
+    Object.values(rec).forEach(e=>{ const nm=Object.keys(e.mois).length; e.nom=nomFrequent(e.noms); e.niv=niveauOf(e.cat,e.sub);
+      if(e.prevu){ e.parMois=e.prevu; abonnements.push(e); return; }
+      if(nm<2) return;
+      const stable=e.n<=nm*1.5&&e.mx<=e.mn*1.2+0.5;   /* une fois par mois, toujours à peu près le même prix */
+      if(e.pl>=e.n/2||stable&&motAbo.test(e.cat+" "+e.sub+" "+e.nom)){ e.parMois=e.tot/nm; abonnements.push(e); }   /* par mois où il est payé */
+      else { e.parMois=e.tot/Math.max(nm,ms.length); reguliers.push(e); } });   /* en moyenne sur tes mois saisis */
+    abonnements.sort((a,b)=>b.parMois-a.parMois); reguliers.sort((a,b)=>b.parMois-a.parMois);
+    /* 🪙 la loupe : les petits achats (15 € ou moins) qui s'additionnent */
+    const pt={};
+    txOfMonth(m).filter(isDepense).forEach(t=>{ const a=Math.abs(t.montant); if(a>15) return;
+      const key=(t.categorie||"")+SEP+(t.sousCategorie||""), e=pt[key]||(pt[key]={cat:t.categorie||"",sub:t.sousCategorie||"",n:0,v:0}); e.n++; e.v+=a; });
+    const petits=Object.values(pt).filter(e=>{ e.niv=niveauOf(e.cat,e.sub); return e.niv!=="obligatoire"&&e.n/nb>=4&&e.v/nb>=20; }).sort((a,b)=>b.v-a.v);
+    /* 📝 le verdict : ce que tu pourrais garder par mois, sans compter deux fois le même euro.
+       Par sous-catégorie on garde la plus grosse raison (évitable, au-dessus de sa limite, au-dessus de tes habitudes) ;
+       par enveloppe, au moins de quoi revenir sous sa limite. */
+    const pot={}, raison={};
+    const add=(cn,s,v,txt)=>{ const k=cn+SEP+s; if(v>(pot[k]||0)+0.005){ pot[k]=v; raison[k]=txt; } };
+    evitables.forEach(l=>add(l.cat,l.sub,l.v/nb,"tu l'as marqué ✂️ évitable : tu pourrais t'en passer"));
+    subDepasse.forEach(l=>add(l.cat,l.sub,l.plus/nb,`au-dessus de sa limite de ${eur(l.lim/nb)} par mois`));
+    if(!annee) hausses.forEach(h=>add(h.cat,h.sub,h.plus,`${eur(h.plus)} de plus que d'habitude en ${MONTHS[ref]}`));   /* sur l'année : des moyennes, pas un seul mois */
+    const parCat={}; Object.keys(pot).forEach(k=>{ const cn=k.slice(0,k.indexOf(SEP)); parCat[cn]=(parCat[cn]||0)+pot[k]; });
+    const actions=Object.keys(pot).map(k=>{ const i=k.indexOf(SEP); return {cat:k.slice(0,i),sub:k.slice(i+1),v:pot[k],txt:raison[k]}; });
+    depasse.forEach(d=>{ const reste=d.plus/nb-(parCat[d.cat]||0);
+      if(reste>0.005){ actions.push({cat:d.cat,sub:"",v:reste,txt:(parCat[d.cat]?"encore ":"")+`pour revenir sous la limite de l'enveloppe, ${eur(d.lim/nb)} par mois`}); parCat[d.cat]=d.plus/nb; } });
+    actions.sort((a,b)=>b.v-a.v);
+    const potentiel=Object.values(parCat).reduce((a,v)=>a+v,0);
+    return {annee,nb,ms,total,nbCats:Object.keys(det).length,split,depasse,subDepasse,sansLimite,evitables,plaisirs,ref,autres,hausses,abonnements,reguliers,petits,potentiel,actions};
+  }
+};
+/* ---------- Le coach épargne (Budget → 🐷 Épargne) : tes objectifs du mois (DB.paye.lines), mois par mois ---------- */
+const Coach={
+  lignes(){ return DB.paye.lines.filter(l=>l.acct&&payeAmt(l)>0); },
+  cible(){ return Math.round(this.lignes().reduce((a,l)=>a+payeAmt(l),0)*100)/100; },
+  fait(mo){ return Math.round(this.lignes().reduce((a,l)=>a+Math.max(0,misVersCompte(l.acct,mo)),0)*100)/100; },
+  /* le mois en cours dans l'année du budget (2026) : 12 = l'année est finie, -1 = pas commencée */
+  moisCourant(){ const n=new Date(), y=n.getFullYear(); return y===2026?n.getMonth():y>2026?12:-1; },
+  niveaux(mo){ const det=depNettes(txOfMonth(mo)), s={obligatoire:0,essentiel:0,plaisir:0,evitable:0}, par={};
+    Object.keys(det).forEach(cn=>Object.keys(det[cn].subs).forEach(sb=>{ const n=niveauOf(cn,sb), v=det[cn].subs[sb]; s[n]+=v;
+      if(n==="plaisir"||n==="evitable") par[cn+SEP+sb]=(par[cn+SEP+sb]||0)+v; }));
+    return {det,s,par}; },
+  /* pourquoi un mois n'a pas atteint l'objectif : les causes, la plus lourde d'abord */
+  diag(mo){ const cible=this.cible(), fait=this.fait(mo), manque=Math.round(Math.max(0,cible-fait)*100)/100, encours=mo===this.moisCourant();
+    if(!(cible>0)||manque<0.005) return {cible,fait,manque,encours,ok:cible>0,causes:[]};
+    const fl=flowOf(mo), paye=payeDuMois(mo), N=this.niveaux(mo), causes=[];
+    /* ce qui restait vraiment de ce mois : sans l'argent repris sur l'épargne ni celui qu'on t'a avancé */
+    const repris=Math.max(0,-fl.epargne), avance=Math.max(0,fl.argent), dispo=Math.round((fl.dispo-repris-avance)*100)/100;
+    if(paye>0&&fl.rev<paye-0.005&&!encours) causes.push({em:"💶",v:paye-fl.rev,txt:`Ta paye a été plus basse que prévu : <b>${eur(fl.rev)}</b> au lieu de ${eur(paye)}, soit <b class="neg">${eur(paye-fl.rev)}</b> de moins.`});
+    if(encours&&paye>0&&fl.rev<0.005) causes.push({em:"💶",v:0,txt:"Ta paye de ce mois n'est pas encore enregistrée : le coach jugera vraiment à la fin du mois."});
+    if(repris>0.005) causes.push({em:"🐷",v:repris,txt:`Tu as repris <b class="neg">${eur(repris)}</b> sur ton épargne ${encours?"ce mois-ci":"ce mois-là"}.`});
+    const deb=Object.keys(N.det).map(cn=>{ const c=catObj(cn), lim=c?catPlafond(c):0; return [cn,lim>0?N.det[cn].tot-lim:0]; }).filter(x=>x[1]>0.005).sort((a,b)=>b[1]-a[1]);
+    const debT=deb.reduce((a,x)=>a+x[1],0);
+    if(debT>0.005) causes.push({em:"🎯",v:debT,txt:`Tes enveloppes ont débordé de <b class="neg">${eur(debT)}</b> : ${deb.slice(0,3).map(x=>`${escH(x[0])} <span class="neg">+${eur(x[1])}</span>`).join(", ")}.`});
+    const sl=Object.keys(N.det).filter(cn=>{ const c=catObj(cn); return !(c&&catPlafond(c)>0); }).map(cn=>[cn,N.det[cn].tot]).sort((a,b)=>b[1]-a[1]), slT=sl.reduce((a,x)=>a+x[1],0);
+    if(slT>0.005) causes.push({em:"❔",v:slT/2,txt:`<b>${eur(slT)}</b> sont partis dans des catégories <b>sans limite</b>, rien ne les retenait : ${sl.slice(0,3).map(x=>escH(x[0])).join(", ")}.`});
+    if(N.s.evitable+N.s.plaisir>0.005){ const top=Object.keys(N.par).sort((a,b)=>N.par[b]-N.par[a]).slice(0,2).map(k=>{ const i=k.indexOf(SEP); return escH(k.slice(0,i))+(k.slice(i+1)?" / "+escH(k.slice(i+1)):""); });
+      causes.push({em:"🎈",v:N.s.evitable+N.s.plaisir/2,txt:`Tu t'es fait plaisir pour <b>${eur(N.s.plaisir)}</b>${N.s.evitable>0.005?` et <b class="neg">${eur(N.s.evitable)}</b> étaient ✂️ évitables`:""}${top.length?`, surtout ${top.join(" et ")}`:""}.`}); }
+    if(fl.argent<-0.005) causes.push({em:"🤝",v:-fl.argent,txt:`Tu as donné ou prêté <b>${eur(-fl.argent)}</b> de plus que tu n'as reçu, catégorie Argent.`});
+    causes.sort((a,b)=>b.v-a.v);   /* les infos à 0 (paye pas encore là) restent en dernier */
+    if(dispo>=manque-0.005) causes.unshift({em:"⏰",v:0,txt:encours
+      ?`Le mois n'est pas fini : il te reste <b class="pos">${eur(dispo)}</b> de ce mois sur tes comptes du quotidien. Tu peux encore faire le virement de <b>${eur(manque)}</b> avec le bouton ⇄.`
+      :`<b>L'argent était là</b> : après tes dépenses, il te restait <b class="pos">${eur(dispo)}</b> de ce mois sur tes comptes du quotidien. C'est le virement de <b>${eur(manque)}</b> qui n'a pas été fait.`});
+    else if(dispo<-0.005) causes.unshift({em:"📉",v:0,txt:encours
+      ?`Pour l'instant, il est sorti <b class="neg">${eur(-dispo)}</b> de plus qu'il n'est entré ce mois-ci sur tes comptes du quotidien${repris+avance>0.005?", sans compter l'argent repris sur l'épargne ou avancé":""}.`
+      :`Ce mois-là, il est sorti <b class="neg">${eur(-dispo)}</b> de plus qu'il n'est entré sur tes comptes du quotidien${repris+avance>0.005?", sans compter l'argent repris sur l'épargne ou avancé":""} : il n'y avait rien à mettre de côté.`});
+    if(!causes.length) causes.push({em:"🤷",v:0,txt:"Pas de cause nette : regarde l'onglet 🔎 Analyse sur ce mois."});
+    return {cible,fait,manque,encours,ok:false,causes,dispo}; },
+  /* faut-il garder l'objectif, faire autrement, ou le baisser ? d'après les mois terminés */
+  conseil(){ const cible=this.cible(), mc=this.moisCourant(), ms=moisRenseignes().filter(mo=>mo<mc);
+    if(!(cible>0)||!ms.length) return null;
+    let capa=0, plaisir=0, evit=0, ok=0; const par={};
+    ms.forEach(mo=>{ const fl=flowOf(mo), N=this.niveaux(mo);
+      capa+=fl.dispo+fl.epargne;   /* ce qui restait de ce mois, épargne comprise : ce que tu pouvais garder */
+      plaisir+=N.s.plaisir; evit+=N.s.evitable; Object.keys(N.par).forEach(k=>{ par[k]=(par[k]||0)+N.par[k]; });
+      if(this.fait(mo)>=cible-0.005) ok++; });
+    const n=ms.length; capa/=n; plaisir/=n; evit/=n;
+    const capaMax=capa+plaisir+evit, reco=Math.max(0,Math.floor(capa/10)*10);
+    const pistes=Object.keys(par).sort((a,b)=>par[b]-par[a]).slice(0,3).map(k=>{ const i=k.indexOf(SEP); return {cat:k.slice(0,i),sub:k.slice(i+1),v:par[k]/n}; });
+    return {cible,n,ok,capa,capaMax,plaisir,evit,reco,pistes,verdict:cible<=capa+0.005?"garder":cible<=capaMax+0.005?"autrement":"reduire"}; }
+};
 /* ---------- Paiements futurs ---------- */
 function upcoming(days){ const today=todayISO(); const lim=new Date(); lim.setDate(lim.getDate()+days); const limISO=lim.toISOString().slice(0,10);
   return DB.future.filter(f=>f.statut==="prévu"&&f.date>=today&&f.date<=limISO).sort((a,b)=>a.date.localeCompare(b.date)); }
@@ -812,7 +1147,7 @@ function renderNav(){
     +`<button class="${UI.tab==='reglages'?'active':''}" onclick="go('reglages')" style="margin-top:auto"><span class="ic">⚙️</span>Réglages</button>`;
   document.getElementById("bottomnav").innerHTML=NAV.map(([k,l,i,s])=>`<button class="${UI.tab===k?'active':''}" onclick="go('${k}')"><span class="ic">${i}</span>${s}</button>`).join("");
 }
-function go(tab){ UI.tab=tab; UI.edit=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; UI.espRecompter=false; UI.fusionCat=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
+function go(tab){ UI.tab=tab; UI.edit=null; UI.retour=null; UI.objDepuis=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; UI.espRecompter=false; UI.fusionCat=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
   const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
@@ -876,7 +1211,7 @@ function viewDash(){
       const pct=o.cible?Math.min((o.actuel||0)/o.cible*100,100):0, atteint=(o.actuel||0)>=o.cible&&o.cible>0;
       return `<div style="margin:8px 0"><div style="display:flex;justify-content:space-between;font-size:12.5px"><span>${o.emoji||'🎯'} <b>${o.nom}</b></span><span>${eur0(o.actuel||0)} / ${eur0(o.cible||0)}</span></div>
         <div class="track" style="height:9px;margin-top:3px"><div class="fill" style="width:${pct}%;background:${atteint?'var(--pos)':'var(--accent)'}"></div></div></div>`;}).join("");
-    objSummary=`<div class="card"><h2>🎯 Mes objectifs d'épargne</h2>${rows}<div style="margin-top:8px"><button class="btn ghost sm" onclick="go('objectifs')">Gérer mes objectifs →</button></div></div>`;
+    objSummary=`<div class="card"><h2>🎯 Mes projets d'épargne</h2>${rows}<div style="margin-top:8px"><button class="btn ghost sm" onclick="go('objectifs')">Gérer mes projets →</button></div></div>`;
   }
   // bientôt
   const od=overdue(), up=upcoming(pref("tdbJours")||30);
@@ -902,7 +1237,7 @@ function viewDash(){
     ${parBanque}
     ${caches.length?`<div class="muted" style="font-size:11.5px;margin-top:9px">🚫 Masqué${caches.length>1?"s":""} : ${caches.map(a=>a.emoji+" "+escH(a.name)+bqPoint(a)).join(", ")} — ✏️ Organiser pour ${caches.length>1?"les":"le"} réafficher.</div>`:""}`}
     <div class="muted" style="font-size:12px;margin-top:10px">💡 Première utilisation : recale chaque compte sur ton solde réel dans Réglages (1 clic par compte).</div>
-    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="go('rapport')">📋 Mon rapport mensuel</button><button class="btn ghost sm" onclick="go('objectifs')">🎯 Mes objectifs</button><button class="btn ghost sm" onclick="openCompteur()">🧮 Compter mes espèces</button><button class="btn ghost sm" onclick="go('reglages')">Recaler mes soldes →</button></div></div>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="go('rapport')">📋 Mon rapport mensuel</button><button class="btn ghost sm" onclick="go('objectifs')">🎯 Mes projets</button><button class="btn ghost sm" onclick="openCompteur()">🧮 Compter mes espèces</button><button class="btn ghost sm" onclick="go('reglages')">Recaler mes soldes →</button></div></div>
   ${caisseRappel}
   ${objSummary}
   ${cryptoSummary}
@@ -1120,7 +1455,7 @@ function viewSaisie(){
     </div>
     ${body}
     <button class="btn" onclick="saveTx()">${editing?"💾 Enregistrer":"✅ Ajouter"}</button>
-    ${editing?`<button class="btn ghost" onclick="go('tx')" style="margin-top:8px">Annuler</button>`:""}
+    ${editing?`<button class="btn ghost" onclick="go(UI.retour||'tx')" style="margin-top:8px">Annuler</button>`:""}
   </div>`;
 }
 function setType(t){
@@ -1256,14 +1591,14 @@ function saveTx(){
     if(from===to){ toast("Choisis deux comptes différents"); return; }
     const obj={id:eid||uid(),type:"transfer",date,montant:Math.abs(mont),from,to,note:document.getElementById("fNote").value.trim(),observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():"")};
     if(espX) obj.esp=espX;
-    commit(obj,eid); return;
+    commit(obj,eid,eid?UI.retour:null); return;
   }
   const espE=espX;
   const obj={ id:eid||uid(), date, montant:(UI.type==="dep"?-1:1)*Math.abs(mont), esp:espE||undefined,
     note:document.getElementById("fNote").value.trim(), categorie:document.getElementById("fCat").value,
     sousCategorie:(document.getElementById("fSub").value==="__new__"?"":document.getElementById("fSub").value), compte:document.getElementById("fCompte").value,
     moyen:document.getElementById("fMoyen").value, observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():""), periode:(UI.edit&&UI.edit.periode)||"" };
-  commit(obj,eid);
+  commit(obj,eid,eid?UI.retour:null);
 }
 function isCashAcct(id){ const a=acct(id); return !!(a&&a.type==="cash"); }
 /* comptes espèces touchés par une opération, avec le sens : {id: montant signé} */
@@ -1406,7 +1741,7 @@ function renderTxList(){
       <button class="del" onclick="editTx('${t.id}')">✏️</button><button class="del" onclick="delTx('${t.id}')">🗑️</button></div>`;
   }).join("");
 }
-function editTx(id){ const t=DB.transactions.find(x=>x.id===id); UI.edit=t; UI.type=t.type==="transfer"?"tr":(t.montant<0?"dep":"ent"); UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
+function editTx(id){ const t=DB.transactions.find(x=>x.id===id); if(!t) return; UI.retour=UI.tab==="saisie"?UI.retour:UI.tab; UI.edit=t; UI.type=t.type==="transfer"?"tr":(t.montant<0?"dep":"ent"); UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
 function delTx(id){ if(!confirm("Supprimer cette opération ?"))return;
   const t=DB.transactions.find(x=>x.id===id);
   const r=ajusterDecomptes(t,null);   /* on remet le décompte de caisse comme avant, ou on propose de recompter */
@@ -1930,66 +2265,308 @@ function aDepenserCardHTML(totPlaf,m,nbMois){
     <div class="muted" style="font-size:12px;margin-top:8px">Soutien : 👛 portefeuille <b>${eur0(s.porte)}</b> · dernier recours : 💰 caisse <b>${eur0(s.caisse)}</b> + 🐷 Livret A <b>${eur0(s.livretA)}</b></div>
   </div>`;
 }
+/* ===================== BUDGET : quatre sous-onglets ===================== */
+const BT=[["entrees","💰","Entrées"],["enveloppes","🎯","Enveloppes"],["analyse","🔎","Analyse"],["epargne","🐷","Épargne"]];
+function setBudTab(t){ UI.budTab=t; render(); window.scrollTo(0,0); }
+function ouvrirBudget(t){ UI.budTab=t; go("budget"); }
+function ouvrirProjets(){ go("objectifs"); UI.objDepuis="budget"; render(); }   /* la page des projets, avec un retour vers Budget → Épargne */
+function setPayeTri(v){ UI.payeTri=v; render(); }
 function viewBudget(){
-  const annee=UI.month==="all";                       /* « Toute l'année » : on cumule tout */
-  const m=annee?"all":UI.month;
-  const nbMois=annee?Math.max(1,moisRenseignes().length):1;   /* les limites sont mensuelles → × nb de mois */
+  const bt=BT.some(x=>x[0]===UI.budTab)?UI.budTab:"enveloppes", m=UI.month==="all"?"all":UI.month;
+  const head=`<div class="pagehead">🎯 Budget</div>
+  <div class="soustabs">${BT.map(([k,i,l])=>`<button class="${bt===k?'on':''}" onclick="setBudTab('${k}')"><span class="ic">${i}</span>${l}</button>`).join("")}</div>${monthSelector()}`;
+  return head+(bt==="entrees"?viewEntrees(m):bt==="analyse"?viewAnalyse(m):bt==="epargne"?viewEpargne(m):viewEnveloppes(m));
+}
+/* ---------- Listes repliables : le total reste dans la ligne de titre, toujours visible ; seule la liste se masque.
+   Ouvert / fermé est retenu sur l'appareil (clé « mb-plis »), pas dans les données. ---------- */
+let PLIS=null;
+function plis(){ if(!PLIS){ try{ PLIS=JSON.parse(STORE.get("mb-plis")||"{}")||{}; }catch(e){ PLIS={}; } } return PLIS; }
+function plier(k,o){ const P=plis(); if(k in P&&!!P[k]===!!o) return; P[k]=o?1:0; try{ STORE.set("mb-plis",JSON.stringify(P)); }catch(e){} }
+function pli(k,tete,corps,cls,ouvert){ const P=plis(), o=k in P?!!P[k]:!!ouvert;
+  return `<details class="pli${cls?" "+cls:""}" data-k="${escH(k)}"${o?" open":""} ontoggle="plier(this.dataset.k,this.open)"><summary>${tete}<span class="chev">▸</span></summary><div class="pli-c">${corps}</div></details>`; }
+/* une opération dans une liste : date, ce que c'est, le compte, le montant signé ; ✏️ pour la modifier */
+function opLigne(t,quoi){ const v=t.montant;
+  return `<div class="lg"><div class="g"><b>${frDateJ(t.date)}</b> · ${quoi!=null?quoi:escH(t.note||"—")}<div class="muted" style="font-size:11px">${acctHTML(resolveAccount(t))}</div></div>
+    <div class="d"><b class="${v>=0?"pos":"neg"}">${v>=0?"+":"−"}${eur(Math.abs(v))}</b><button class="ed" title="Modifier cette opération" data-id="${escH(t.id)}" onclick="editTx(this.dataset.id)">✏️</button></div></div>`; }
+function resume(lignes){ return `<div class="resume">${lignes.map(([l,v])=>`<div><span class="muted">${l}</span><b>${v}</b></div>`).join("")}</div>`; }
+function lblCS(cat,sub){ return `${escH(catEmoji(cat))} ${escH(cat||"Sans catégorie")}${sub?` <span class="muted">/</span> ${escH(sub)}`:""}`; }
+function nivEmo(n){ return NIVEAUX[n]?`<span title="${NIVEAUX[n].lbl}">${NIVEAUX[n].emo}</span>`:""; }
+
+/* ---------- 💰 Entrées : la paye mois par mois, l'argent donné / rendu, les remboursements d'enveloppes ---------- */
+function viewEntrees(m){
+  const annee=m==="all", lab=annee?"sur l'année":"en "+MONTHS[m], r2=x=>Math.round(x*100)/100, tx=txOfMonth(m);
+  /* 💶 la paye : toujours toute l'année, pour comparer les mois entre eux */
+  const parMois={}; DB.transactions.filter(isRevenu).forEach(t=>{ const mo=monthOf(t.date); if(mo!=null) (parMois[mo]=parMois[mo]||[]).push(t); });
+  const recu=mo=>r2((parMois[mo]||[]).reduce((a,t)=>a+t.montant,0));
+  const mois=[...new Set(moisRenseignes().concat(Object.keys(parMois).map(Number)))].sort((a,b)=>a-b);
+  const avec=mois.filter(mo=>recu(mo)>0.005), tot=r2(avec.reduce((a,mo)=>a+recu(mo),0)), moy=avec.length?tot/avec.length:0;
+  const best=avec.length?avec.reduce((b,mo)=>recu(mo)>recu(b)?mo:b):null, pire=avec.length>1?avec.reduce((b,mo)=>recu(mo)<recu(b)?mo:b):null, max=best!=null?recu(best):0;
+  const ordre=UI.payeTri==="montant"?mois.slice().sort((a,b)=>recu(b)-recu(a)||a-b):mois;
+  const sansCat=r2(DB.transactions.filter(t=>isRevenu(t)&&!t.categorie).reduce((a,t)=>a+t.montant,0));
+  const moisPli=mo=>{ const v=recu(mo), prev=payeDuMois(mo), ops=(parMois[mo]||[]).slice().sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+    const tete=`<span class="tot"><span>${mo===best?"🏆 ":""}<b>${moisMaj(mo)}</b>${!annee&&mo===m?' <span class="etq">choisi</span>':""}</span>
+      <span><b class="${v>0.005?"pos":"muted"}">${eur(v)}</b>${prev>0?`<div class="muted" style="font-size:11px">prévue ${eur(prev)}</div>`:""}</span></span>
+      <div class="track"><div class="fill" style="width:${max?Math.max(v/max*100,v>0.005?3:0):0}%;background:${mo===best?"var(--pos)":"var(--accent)"}"></div></div>`;
+    return pli("paye:"+mo,tete,ops.length?ops.map(t=>opLigne(t)).join(""):`<div class="muted" style="font-size:12px;padding:6px 0">Aucune paye enregistrée en ${MONTHS[mo]}.</div>`,"sous"); };
+  const payeCard=`<div class="card"><h2>💶 Ma paye, mois par mois</h2>
+    ${avec.length?`${resume([[`Total ${mois.length>1?"sur "+avec.length+" mois":""}`,`<span class="pos">${eur(tot)}</span>`],["Moyenne par mois",eur(moy)],["🏆 Meilleur mois",`${moisMaj(best)}, <span class="pos">${eur(max)}</span>`]])}
+      <div class="muted" style="font-size:12.5px;margin:10px 0 4px">🏆 <b>${moisMaj(best)}</b> t'a le plus rapporté : <b class="pos">${eur(max)}</b>${avec.length>1?`, ${eur(max-moy)} de plus que ta moyenne`:""}.${pire!=null&&pire!==best?` Le plus faible : <b>${moisMaj(pire)}</b>, ${eur(recu(pire))}.`:""}${sansCat>0.005?` Dont ${eur(sansCat)} d'entrées sans catégorie.`:""}</div>`
+    :`<div class="muted" style="font-size:12.5px">Aucune paye enregistrée pour l'instant. Saisis-la en <b>Entrée</b>, dans ta catégorie 💶 Paye.${!DB.categories.some(c=>genreDe(c)==="paye")?` Donne d'abord le genre <b>💶 Paye</b> à ta catégorie de paye dans Réglages → Catégories.`:""}</div>`}
+    ${mois.length?pli("entrees:paye",`<span class="tot"><span><b>📅 Le détail mois par mois</b></span><span class="muted" style="font-size:12px">${mois.length} mois</span></span>`,
+      `<div class="tri"><button class="${UI.payeTri!=="montant"?"on":""}" onclick="setPayeTri('mois')">📅 Dans l'ordre</button><button class="${UI.payeTri==="montant"?"on":""}" onclick="setPayeTri('montant')">🏆 Du plus au moins</button></div>
+       <div class="muted" style="font-size:11.5px;margin-bottom:2px">Touche un mois pour voir ses payes.</div>${ordre.map(moisPli).join("")}`,"",true):""}
+  </div>`;
+  /* 🤝 l'argent : les opérations de la période, et le solde avec chaque personne depuis le début */
+  const agOps=tx.filter(isArgentTx).sort((a,b)=>(b.date||"").localeCompare(a.date||"")), ag=argentTotaux(tx), solde=r2(ag.recu-ag.donne);
+  const qui=t=>(t.sousCategorie?"👤 "+escH(t.sousCategorie):"🏷️ "+escH(t.categorie||""))+(t.note?" · "+escH(t.note):"");
+  let agListe="", cur=null;
+  agOps.forEach(t=>{ const mo=monthOf(t.date);
+    if(annee&&mo!==cur){ cur=mo; const s=argentTotaux(agOps.filter(x=>monthOf(x.date)===mo)); agListe+=`<div class="mois-sep"><span>${moisMaj(mo)}</span><span>+${eur(s.recu)} · −${eur(s.donne)}</span></div>`; }
+    agListe+=opLigne(t,qui(t)); });
+  const pers=argentParPersonne();
+  const soldeTxt=p=>p.solde>0.005?`<b class="pos">+${eur(p.solde)}</b><div class="muted" style="font-size:11px">reçu en plus</div>`:p.solde<-0.005?`<b class="neg">−${eur(-p.solde)}</b><div class="muted" style="font-size:11px">donné en plus</div>`:`<b>✅ à zéro</b>`;
+  const persPli=p=>pli("pers:"+(p.nom?"p:"+p.nom.toLowerCase():"c:"+p.cat),
+    `<span class="tot"><span><b>${p.nom?"👤 "+escH(p.nom):"🏷️ "+escH(p.cat)+' <span class="muted" style="font-weight:600">· sans personne</span>'}</b><div class="muted" style="font-size:11.5px">+${eur(p.recu)} reçus · −${eur(p.donne)} donnés ou rendus</div></span><span>${soldeTxt(p)}</span></span>`,
+    p.ops.map(t=>opLigne(t,t.note?escH(t.note):(t.montant>0?"reçu":"donné ou rendu"))).join(""),"sous");
+  const argentCard=`<div class="card"><h2>🤝 Argent — ${annee?"toute l'année":MONTHS[m]}</h2>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">L'argent qu'on te donne ou t'avance, et ce que tu rends ou donnes. Ce n'est ni une paye, ni une dépense.</div>
+    ${resume([["Reçu",`<span class="pos">+${eur(ag.recu)}</span>`],["Donné ou rendu",`<span class="neg">−${eur(ag.donne)}</span>`],["Solde",`<span class="${solde>0.005?"pos":solde<-0.005?"neg":""}">${solde>0.005?"+":solde<-0.005?"−":""}${eur(Math.abs(solde))}</span>`]])}
+    ${agOps.length?pli("entrees:argent",`<span class="tot"><span><b>📋 Toutes les opérations</b></span><span class="muted" style="font-size:12px">${agOps.length} opération${agOps.length>1?"s":""}</span></span>`,agListe)
+      :`<div class="muted" style="font-size:12.5px;margin-top:8px">Rien ${annee?"cette année":"ce mois-ci"}.${!DB.categories.some(c=>genreDe(c)==="argent")?` Donne le genre <b>🤝 Argent</b> à ta catégorie Argent dans Réglages → Catégories.`:""}</div>`}
+    ${pers.length?`<div style="font-weight:700;font-size:13px;margin:14px 0 2px">🤝 Avec chaque personne <span class="muted" style="font-weight:600;font-size:11.5px">· depuis le début · touche un nom pour le détail</span></div>
+      ${pers.map(persPli).join("")}
+      <div class="muted" style="font-size:11px;margin-top:6px">Une personne = une sous-catégorie de ta catégorie Argent. « Reçu en plus » : on t'a donné ou avancé plus que tu n'as rendu.</div>`:""}
+  </div>`;
+  /* ↩️ les remboursements d'enveloppes de la période, par enveloppe */
+  const rb=tx.filter(isRemb).sort((a,b)=>(b.date||"").localeCompare(a.date||"")), rbTot=r2(rb.reduce((a,t)=>a+t.montant,0)), parCat={};
+  rb.forEach(t=>{ const c=t.categorie||"Autres"; (parCat[c]=parCat[c]||[]).push(t); });
+  const rbCats=Object.keys(parCat).map(c=>({c,ops:parCat[c],tot:r2(parCat[c].reduce((a,t)=>a+t.montant,0))})).sort((a,b)=>b.tot-a.tot);
+  const rembCard=`<div class="card"><h2>↩️ Remboursements de mes enveloppes — ${annee?"toute l'année":MONTHS[m]}</h2>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">Une entrée dans une enveloppe, par exemple ta part du resto qu'on te rend : elle allège l'enveloppe où tu l'as saisie.</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;background:var(--surface-2);border-radius:13px;padding:11px 14px"><span class="muted" style="font-size:12.5px">Total remboursé ${lab}</span><b class="${rbTot>0?"pos":"muted"}" style="font-size:18px">${eur(rbTot)}</b></div>
+    ${rbCats.length?`<div class="muted" style="font-size:11.5px;margin:10px 0 0">Touche une enveloppe pour voir ses remboursements.</div>`+rbCats.map(x=>pli("remb:"+x.c,`<span class="tot"><span>${escH(catEmoji(x.c))} <b>${escH(x.c)}</b> <span class="muted" style="font-size:11.5px">· ${x.ops.length}</span></span><span><b class="pos">+${eur(x.tot)}</b></span></span>`,
+        x.ops.map(t=>opLigne(t,(t.sousCategorie?escH(t.sousCategorie)+" · ":"")+escH(t.note||"—"))).join(""),"sous")).join("")
+      :`<div class="muted" style="font-size:12.5px;margin-top:8px">Aucun remboursement ${annee?"cette année":"ce mois-ci"}.</div>`}
+  </div>`;
+  return payeCard+argentCard+rembCard;
+}
+
+/* ---------- 🎯 Enveloppes : la limite de chaque catégorie, ses sous-catégories (avec leur limite) et le détail nom par nom ---------- */
+/* la clé d'un libellé : sans la casse, les espaces en trop, ni le « (3/12) » des paiements en plusieurs fois (une série = un seul nom) */
+function cleLib(s){ return String(s||"").trim().toLowerCase().replace(/\s*\(\d+\/\d+\)$/,"").replace(/\s+/g," "); }
+function nomFrequent(noms){ return (Object.keys(noms).sort((a,b)=>noms[b]-noms[a]||a.localeCompare(b))[0]||"").replace(/\s*\(\d+\/\d+\)$/,""); }
+/* le détail d'une sous-catégorie, regroupé par libellé (ex : Abonnements / Logiciels → Canva, Microsoft…), avec le prochain paiement prévu */
+function detailSub(cat,sub,m){ const by={}, today=todayISO();
+  const it=k=>by[k]||(by[k]={noms:{},tot:0,n:0,totAn:0,mois:{},der:""});
+  DB.transactions.forEach(t=>{ if(!pese(t)||(t.categorie||"Autres")!==cat||(t.sousCategorie||"")!==sub) return;
+    const e=it(cleLib(t.note)), mo=monthOf(t.date), v=depVal(t), nm=(t.note||"").trim();
+    e.totAn+=v; if(mo!=null) e.mois[mo]=1;
+    if(m!=="all"&&mo!==m) return;
+    e.noms[nm]=(e.noms[nm]||0)+1; e.tot+=v; e.n++; if((t.date||"")>e.der) e.der=t.date; });
+  (DB.future||[]).forEach(f=>{ if(f.statut!=="prévu"||f.type==="transfer"||!(f.montant<0)||f.categorie!==cat||(f.sousCategorie||"")!==sub||!(f.date>=today)) return;
+    const e=it(cleLib(f.nom)); if(!Object.keys(e.noms).length) e.noms[(f.nom||"").trim()]=1;
+    if(!e.prochain||f.date<e.prochain){ e.prochain=f.date; e.prochainV=Math.abs(f.montant); } });
+  return Object.values(by).filter(e=>e.n||e.prochain).map(e=>{ const nm=Object.keys(e.mois).length;
+    return {nom:nomFrequent(e.noms)||"Sans libellé",tot:Math.round(e.tot*100)/100,n:e.n,der:e.der,prochain:e.prochain||"",prochainV:e.prochainV||0,recurrent:nm>=2,parMois:nm?e.totAn/nm:0}; })
+    .sort((a,b)=>b.tot-a.tot||a.nom.localeCompare(b.nom)); }
+function itemLigne(e){ return `<div class="lg"><div class="g"><b>${escH(e.nom)}</b>${e.recurrent?' <span class="etq">🔁 revient</span>':""}
+  <div class="muted" style="font-size:11px">${[e.n?e.n+" fois"+(e.der?" · dernière le "+frDate(e.der):""):"",e.recurrent?"≈ "+eur(e.parMois)+"/mois":"",e.prochain?"📅 prochain le "+frDate(e.prochain)+", "+eur(e.prochainV):""].filter(Boolean).join(" · ")}</div></div>
+  <div class="d">${e.n?(e.tot<0?`<b class="pos">+${eur(-e.tot)}</b>`:`<b>${eur(e.tot)}</b>`):'<span class="muted">à venir</span>'}</div></div>`; }
+function viewEnveloppes(m){
+  const annee=m==="all", nbMois=annee?Math.max(1,moisRenseignes().length):1;   /* les limites sont mensuelles → × nb de mois */
+  const tx=txOfMonth(m), det=depNettes(tx);
   /* dépensé par enveloppe = dépenses − remboursements reçus dans cette catégorie (ex : resto 40 €, on te rend 20 € → 20 €) */
   const spentM={}, rembM={};
-  txOfMonth(m).forEach(t=>{ const c=t.categorie||"Autres";
+  tx.forEach(t=>{ const c=t.categorie||"Autres";
     if(isDepense(t)) spentM[c]=(spentM[c]||0)+Math.abs(t.montant); else if(isRemb(t)) rembM[c]=(rembM[c]||0)+t.montant; });
-  /* la paye et l'argent ne sont pas des enveloppes : ils sont suivis à part (carte « Mes entrées ») */
+  /* la paye et l'argent ne sont pas des enveloppes : ils sont suivis dans l'onglet 💰 Entrées */
   const cats=DB.categories.map((c,i)=>({c,i,plaf:catPlafond(c)*nbMois,dep:spentM[c.name]||0,remb:rembM[c.name]||0}))
     .map(x=>Object.assign(x,{sMois:Math.round((x.dep-x.remb)*100)/100})).filter(x=>x.c.active&&genreDe(x.c)==="depense");
   const totPlaf=cats.reduce((a,x)=>a+x.plaf,0);
   const inputs=x=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11.5px" class="muted">
       <span style="display:inline-flex;align-items:center;gap:3px">€/mois <input type="number" min="0" step="5" placeholder="0" value="${x.c.budget||""}" onchange="setCatBudget(${x.i},this.value)" style="width:64px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);text-align:right"></span>
       ${x.c.budget>0?`<button class="btn ghost sm" style="width:auto;padding:3px 8px;font-size:10.5px" title="J'ai tapé un prix à l'année ? Clique pour le diviser par 12 et le passer en mensuel" onclick="convertAn(${x.i})">c'était par an ÷12</button>`:""}
+      ${nivSelect(x.i,"",niveauCat(x.c))}
     </div>`;
+  const subLigne=(x,s,v)=>{ const c=x.c, enListe=!!s&&(c.subs||[]).indexOf(s)>=0, lim=enListe?subPlafond(c,s)*nbMois:0, r=lim?v/lim:0,
+      col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)", niv=niveauOf(c.name,s), propre=!!(s&&c.subsNiveau&&NIVEAUX[c.subsNiveau[s]]);
+    const items=detailSub(c.name,s,m);
+    const tete=`<span class="tot"><span>${s?escH(s)+" "+nivEmo(niv):'<i class="muted">Sans sous-catégorie</i>'}</span><span>${lim?`<b style="color:${col}">${eur(v)}</b> <span class="muted">/ ${eur(lim)}</span>`:`<b>${eur(v)}</b>`}</span></span>${lim?`<div class="track"><div class="fill" style="width:${Math.min(r*100,100)}%;background:${col}"></div></div>`:""}`;
+    const reg=enListe?`<div class="subreg"><span>€/mois <input type="number" min="0" step="1" placeholder="0" value="${subPlafond(c,s)||""}" data-s="${escH(s)}" onchange="setSubBudget(${x.i},this.dataset.s,this.value)"></span>${nivSelect(x.i,s,propre?niv:"",niveauCat(c))}</div>`
+      :s?`<div class="muted" style="font-size:11px;padding:4px 0">Elle n'est pas dans la liste de « ${escH(c.name)} » : ajoute-la dans Réglages → Catégories pour lui donner une limite.</div>`:"";
+    const lst=items.length?items.map(itemLigne).join(""):`<div class="muted" style="font-size:12px;padding:6px 0">Rien ${annee?"cette année":"ce mois-ci"}.</div>`;
+    return pli("sub:"+c.name+"|"+s,tete,reg+lst,"sous"); };
+  const subsHTML=x=>{ const c=x.c, d=det[c.name]||{subs:{}}, noms=(c.subs||[]).slice();
+    Object.keys(d.subs).forEach(s=>{ if(noms.indexOf(s)<0) noms.push(s); });   /* une ancienne sous-catégorie, ou « sans sous-catégorie », à la fin */
+    if(!noms.length) return "";
+    const rep=subsRepartis(c), plaf=catPlafond(c), trop=plaf>0&&rep>plaf+0.005;
+    return pli("env:"+c.name,`<span class="tot"><span style="font-size:12.5px">📂 <b>Sous-catégories</b> <span class="muted">(${noms.filter(Boolean).length})</span></span><span class="muted" style="font-size:11.5px">${rep>0?`<span class="${trop?"neg":""}">réparti ${eur(rep)}${plaf>0?" / "+eur(plaf):""}</span>`:"touche pour le détail"}</span></span>`,
+      `<div class="muted" style="font-size:11px;margin:6px 0 2px">Une limite par sous-catégorie, si tu veux : elle se range dans celle de l'enveloppe.${trop?` <b class="neg">Tes sous-catégories font plus que l'enveloppe : monte sa limite.</b>`:""} Touche une sous-catégorie pour le détail, nom par nom.</div>`
+      +noms.map(s=>subLigne(x,s,d.subs[s]||0)).join(""),"sous"); };
   const row=x=>{ const net=Math.max(0,x.sMois), has=x.plaf>0, r=has?net/x.plaf:0, pct=Math.min(r*100,100), col=r>1?"var(--neg)":r>=.8?"var(--warn)":"var(--pos)", reste=x.plaf-net;
-    return `<div class="bbar"><div class="top"><span>${escH(x.c.emoji)} <b>${escH(x.c.name)}</b></span>
+    return `<div class="bbar"><div class="top"><span>${escH(x.c.emoji)} <b>${escH(x.c.name)}</b> ${nivEmo(niveauCat(x.c))}</span>
       <span style="color:${has?col:'var(--muted)'}">${has?`${eur0(net)} <span class="muted">/ ${eur0(x.plaf)}</span>`:`${eur0(net)} <span class="muted">dépensés</span>`}</span></div>
       ${has?`<div class="track"><div class="fill" style="width:${pct}%;background:${col}"></div></div>`:""}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;flex-wrap:wrap;gap:6px">
         ${has?`<span class="muted" style="font-size:11.5px">${reste>=0?`reste <b class="pos">${eur0(reste)}</b>`:`dépassé de <b class="neg">${eur0(-reste)}</b>`}</span>`:`<span class="muted" style="font-size:11.5px">pas encore de limite</span>`}
         ${inputs(x)}
-      </div>${x.remb>0.005?`<div class="muted" style="font-size:11px;margin-top:3px">↩️ ${eur0(x.dep)} payés − <b class="pos">${eur0(x.remb)}</b> remboursés${x.sMois<-0.005?` <span>(le reste rembourse une dépense d'un autre mois)</span>`:""}</div>`:""}</div>`;};
-  return `<div class="pagehead">🎯 Mes enveloppes</div>${monthSelector()}
-  ${aDepenserCardHTML(totPlaf,m,nbMois)}
-  ${entreesCardHTML(m)}
+      </div>${x.remb>0.005?`<div class="muted" style="font-size:11px;margin-top:3px">↩️ ${eur0(x.dep)} payés − <b class="pos">${eur0(x.remb)}</b> remboursés${x.sMois<-0.005?` <span>(le reste rembourse une dépense d'un autre mois)</span>`:""}</div>`:""}
+      ${subsHTML(x)}</div>`;};
+  const A=Analyste.run(m);
+  const teaser=`<div class="card" style="border:1px solid var(--accent)"><div class="insight" style="margin:0;background:transparent;align-items:center;flex-wrap:wrap"><div class="em">🔎</div>
+    <div class="it" style="flex:1 1 180px">${A.total<0.005?"Pas encore de dépenses à analyser.":A.potentiel>=1?`Les agents ont trouvé environ <b class="pos">${eur(A.potentiel)} par mois</b> que tu pourrais garder.`:`Rien à signaler pour l'instant${A.sansLimite.length?`, mais ${A.sansLimite.length} enveloppe${A.sansLimite.length>1?"s n'ont":" n'a"} pas de limite`:""}.`}
+      <div class="muted" style="font-size:12px">Ils lisent tes enveloppes et ce que tu leur dis avec le menu de chaque enveloppe : 🔒 obligatoire, 🧷 essentiel, 🎈 plaisir ou ✂️ évitable.</div></div>
+    <button class="btn sm" onclick="setBudTab('analyse')">Voir l'analyse →</button></div></div>`;
+  return `${aDepenserCardHTML(totPlaf,m,nbMois)}${teaser}
   <div class="card"><h2>Mes enveloppes — ${annee?"toute l'année":MONTHS[m]}</h2>
     <div class="muted" style="font-size:12px;margin-bottom:10px">${annee
       ? `Tes dépenses <b>cumulées</b> sur l'année, comparées à tes limites mensuelles multipliées par les <b>${nbMois} mois</b> que tu as saisis.`
-      : `Mets une limite <b>par mois</b> pour chaque catégorie. Un abonnement à l'année ? Tape son prix dans la case, puis clique <b>« c'était par an ÷12 »</b> — l'app le passe en mensuel.`}
+      : `Mets une limite <b>par mois</b> pour chaque catégorie. Un abonnement à l'année ? Tape son prix dans la case, puis clique <b>« c'était par an ÷12 »</b> : l'app le passe en mensuel.`}
+      Touche <b>📂 Sous-catégories</b> pour leur donner une limite et voir le détail, nom par nom.
       <button class="btn ghost sm" style="display:inline;width:auto;padding:3px 8px" onclick="proposerPlafonds()">💡 propose-moi des montants</button></div>
-    ${cats.map(row).join("")}</div>
-  ${epargneCardHTML(m,nbMois)}`;
+    ${cats.map(row).join("")}</div>`;
 }
-/* Mes entrées : la paye reçue (face à la paye prévue), l'argent donné / rendu par personne, les remboursements d'enveloppes */
-function entreesCardHTML(m){
-  const annee=(m==="all"), tx=txOfMonth(m), r2=x=>Math.round(x*100)/100;
-  const recue=r2(tx.filter(isRevenu).reduce((a,t)=>a+t.montant,0));
-  const sansCat=r2(tx.filter(t=>isRevenu(t)&&!t.categorie).reduce((a,t)=>a+t.montant,0));
-  const prevue=annee?payeAnnuelle().tot:payeDuMois(m);
-  const ag=argentTotaux(tx), remb=r2(tx.filter(isRemb).reduce((a,t)=>a+t.montant,0));
-  const pers=argentParPersonne(), aPaye=DB.categories.some(c=>genreDe(c)==="paye"), aArgent=DB.categories.some(c=>genreDe(c)==="argent");
-  const ligne=(g,d,x)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)"><span>${g}</span><span style="text-align:right">${d}</span></div>${x?`<div class="muted" style="font-size:11.5px;margin:-3px 0 4px">${x}</div>`:""}`;
-  const soldeTxt=p=>p.solde>0.005?`<b class="pos">+${eur0(p.solde)}</b> <span class="muted">reçu en plus</span>`:p.solde<-0.005?`<b class="neg">−${eur0(-p.solde)}</b> <span class="muted">donné en plus</span>`:`<b>✅ à zéro</b>`;
-  return `<div class="card"><h2>💰 Mes entrées — ${annee?"toute l'année":MONTHS[m]}</h2>
-    <div class="muted" style="font-size:12px;margin-bottom:6px">Ce ne sont pas des enveloppes : on les suit à part. Seule la paye compte comme ce que tu as à dépenser.</div>
-    ${ligne("💶 <b>Paye reçue</b>",`<b class="pos">${eur0(recue)}</b>${prevue>0?` <span class="muted">/ ${eur0(prevue)} prévue</span>`:""}`,
-      (sansCat>0.005?`dont ${eur0(sansCat)} d'entrées sans catégorie. `:"")+(!aPaye&&recue-sansCat<0.005?`Donne le genre <b>💶 Paye</b> à ta catégorie de paye dans Réglages → Catégories.`:""))}
-    ${ligne("🤝 <b>Argent</b>",(ag.recu||ag.donne)?`<b class="pos">+${eur0(ag.recu)}</b> reçus · <b class="neg">−${eur0(ag.donne)}</b> donnés ou rendus`:`<span class="muted">rien ${annee?"cette année":"ce mois-ci"}</span>`,
-      aArgent?"":`Donne le genre <b>🤝 Argent</b> à ta catégorie Argent dans Réglages → Catégories.`)}
-    ${ligne("↩️ <b>Remboursements</b>",remb>0?`<b class="pos">${eur0(remb)}</b>`:`<span class="muted">aucun</span>`,remb>0?"Ils allègent l'enveloppe où tu les as saisis.":"")}
-    ${pers.length?`<div style="font-weight:700;font-size:13px;margin:12px 0 2px">🤝 Avec chaque personne <span class="muted" style="font-weight:600;font-size:11.5px">· depuis le début</span></div>
-      ${pers.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px">
-        <div style="min-width:0"><b>${p.nom?"👤 "+escH(p.nom):"🏷️ "+escH(p.cat)+" <span class=\"muted\" style=\"font-weight:600\">· sans personne</span>"}</b><div class="muted" style="font-size:11.5px">+${eur0(p.recu)} reçus · −${eur0(p.donne)} donnés ou rendus</div></div>
-        <div style="text-align:right;white-space:nowrap">${soldeTxt(p)}</div></div>`).join("")}
-      <div class="muted" style="font-size:11px;margin-top:6px">Une personne = une sous-catégorie de ta catégorie Argent. « Reçu en plus » : on t'a donné ou avancé plus que tu n'as rendu.</div>`:""}
-  </div>`;
+
+/* ---------- 🔎 Analyse : ce que disent les agents (calculés par Analyste) ---------- */
+function viewAnalyse(m){
+  const A=Analyste.run(m), annee=A.annee, lab=annee?"sur l'année":"en "+MONTHS[m];
+  const f=v=>annee?`${eur(v/A.nb)}<span class="muted" style="font-size:11px">/mois</span>`:eur(v);   /* sur l'année : la moyenne par mois */
+  const ligne=(cat,sub,droite,sous,niv)=>`<div class="lg"><div class="g">${lblCS(cat,sub)}${niv?" "+nivEmo(niv):""}${sous?`<div class="muted" style="font-size:11px">${sous}</div>`:""}</div><div class="d">${droite}</div></div>`;
+  const carte=(emo,titre,tag,tete,corps)=>`<div class="card"><h2>${emo} ${titre} <span class="tag">${tag}</span></h2><div style="font-size:13.5px;margin-bottom:4px">${tete}</div>${corps||""}</div>`;
+  const liste=(k,titre,n,html)=>n?pli("ana:"+k,`<span class="tot"><span><b>${titre}</b></span><span class="muted" style="font-size:12px">${n}</span></span>`,html):"";
+  const marque=DB.categories.some(c=>genreDe(c)==="depense"&&(niveauCat(c)==="obligatoire"||niveauCat(c)==="evitable"||Object.values(c.subsNiveau||{}).some(v=>v==="obligatoire"||v==="evitable")));
+  const classer=`<div class="insight" style="margin:10px 0 0"><div class="em">💡</div><div class="it" style="font-size:12.5px">${marque?"Tu peux affiner ce que tu as dit aux agents":"Dis aux agents ce qui est <b>🔒 obligatoire</b> et ce qui est <b>✂️ évitable</b> : pour l'instant, tout est 🧷 essentiel ou 🎈 plaisir"}. Il y a un menu sous chaque enveloppe (onglet 🎯 Enveloppes), ou tout d'un coup ici :
+    <div style="margin-top:8px"><button class="btn ghost sm" onclick="go('besoins')">🧭 Classer mes dépenses →</button></div></div></div>`;
+  const pied=`<div class="muted" style="font-size:11.5px;margin:2px 4px 14px">🤖 Ces agents sont des calculs faits par l'app, sur ton appareil, avec tes opérations, tes limites et ce que tu leur as dit. Rien n'est envoyé sur Internet.${annee?" Sur « Toute l'année », les montants suivis de « /mois » sont des moyennes par mois.":""}</div>`;
+  if(A.total<0.005) return `<div class="card"><div class="empty">Aucune dépense ${lab} : rien à analyser pour l'instant.</div>${classer}</div>`+pied;
+  /* 📝 le verdict : quand il n'y a rien à garder, on dit ce qui a été vérifié, et ce qui manque pour juger */
+  const top=A.actions.slice(0,3), aEvit=DB.categories.some(c=>genreDe(c)==="depense"&&(niveauCat(c)==="evitable"||Object.values(c.subsNiveau||{}).some(v=>v==="evitable")));
+  const verifie=[A.nbCats>A.sansLimite.length&&!A.depasse.length&&!A.subDepasse.length?"aucune enveloppe ne dépasse sa limite":"",
+      !annee&&A.ref!=null&&A.autres.length>=2&&!A.hausses.length?"rien ne grimpe par rapport à tes habitudes":"", aEvit&&!A.evitables.length?"rien de ce que tu as marqué ✂️ évitable n'a coûté":""].filter(Boolean);
+  const manque=[A.sansLimite.length?`${A.sansLimite.length} enveloppe${A.sansLimite.length>1?"s n'ont":" n'a"} pas de limite`:"",
+      !aEvit?"tu n'as encore rien marqué ✂️ évitable":"", !annee&&(A.ref==null||A.autres.length<2)?"il faut 3 mois saisis pour comparer à tes habitudes":""].filter(Boolean);
+  const verdict=`<div class="card" style="border:1px solid var(--accent)"><h2>📝 Le verdict <span class="tag">LES AGENTS</span></h2>
+    <div style="font-size:13.5px">${annee?`Sur tes <b>${A.nb}</b> mois saisis, tu dépenses en moyenne <b>${eur(A.total/A.nb)}</b> par mois.`:`En <b>${MONTHS[m]}</b>, tu as dépensé <b>${eur(A.total)}</b>.`}</div>
+    ${A.potentiel>=1?`<div class="muted" style="font-size:12.5px;margin-top:10px">Tu pourrais garder environ</div><div class="big pos">${eur(A.potentiel)} <span class="muted" style="font-size:13px;font-weight:600">par mois</span></div>
+      <div class="muted" style="font-size:12px;margin:4px 0 10px">Par où commencer :</div>
+      ${top.map((a,i)=>`<div class="insight" style="margin-bottom:8px"><div class="em">${["1️⃣","2️⃣","3️⃣"][i]}</div><div class="it">${lblCS(a.cat,a.sub)} : <b>${eur(a.v)}</b> par mois<div class="muted" style="font-size:12px">${a.txt}</div></div></div>`).join("")}`
+      :`<div class="insight" style="margin-top:10px"><div class="em">${verifie.length?"✅":"🤷"}</div><div class="it">${verifie.length?`Rien à signaler sur ce que les agents ont pu vérifier : ${verifie.join(", ")}.`:`Les agents n'ont encore rien pu vérifier${A.depasse.length||A.subDepasse.length||A.evitables.length?", à part de petits écarts de moins d'un euro par mois":""}.`}${manque.length?`<div class="muted" style="font-size:12px;margin-top:4px">Mais ils manquent d'informations : ${manque.join(" ; ")}.</div>`:""}</div></div>`}
+    ${annee&&A.hausses.length?`<div class="insight" style="margin-top:8px"><div class="em">📈</div><div class="it" style="font-size:12.5px">En <b>${MONTHS[A.ref]}</b>, ${A.hausses.length} poste${A.hausses.length>1?"s sont":" est"} au-dessus de tes habitudes : regarde « Ce qui grimpe » plus bas, ou choisis ${MONTHS[A.ref]} dans la période.</div></div>`:""}
+    ${classer}</div>`;
+  /* ⚖️ la balance : par niveau */
+  const pa=payeAnnuelle(), payeM=annee?(pa.n?pa.tot/pa.n:0):payeDuMois(m);
+  const NC={obligatoire:"var(--info)",essentiel:"var(--accent)",plaisir:"var(--warn)",evitable:"var(--neg)"};
+  const balance=carte("⚖️","Où va ton argent","LA BALANCE",
+    `<div class="niv-bar">${Object.keys(NIVEAUX).map(k=>`<div style="width:${A.split[k]/A.total*100}%;background:${NC[k]}"></div>`).join("")}</div>
+     ${Object.keys(NIVEAUX).map(k=>`<div class="lg" style="border-bottom-style:solid"><div class="g"><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${NC[k]}"></span> ${NIVEAUX[k].emo} <b>${NIVEAUX[k].lbl}</b><div class="muted" style="font-size:11px">${NIVEAUX[k].aide}</div></div>
+       <div class="d"><b>${f(A.split[k])}</b><div class="muted" style="font-size:11px">${Math.round(A.split[k]/A.total*100)} % des dépenses${payeM>0?`<br>${Math.round(A.split[k]/A.nb/payeM*100)} % de ta paye`:""}</div></div></div>`).join("")}
+     ${payeM>0?`<div class="muted" style="font-size:12px;margin-top:8px">Tes 🔒 obligatoires et 🧷 essentiels prennent <b>${Math.round((A.split.obligatoire+A.split.essentiel)/A.nb/payeM*100)} %</b> de ta paye${annee?", en moyenne":""}.</div>`:""}`);
+  /* 🎯 le contrôleur */
+  const sumPlus=A.depasse.reduce((a,x)=>a+x.plus,0);
+  const ctrl=carte("🎯","Enveloppes dépassées","LE CONTRÔLEUR",
+    A.depasse.length?`<b class="neg">${A.depasse.length}</b> enveloppe${A.depasse.length>1?"s ont":" a"} dépassé ${A.depasse.length>1?"leur":"sa"} limite ${lab} : <b class="neg">${f(sumPlus)}</b> de trop.`:`✅ Aucune enveloppe ne dépasse sa limite ${lab}.`,
+    liste("dep","Les enveloppes dépassées",A.depasse.length,A.depasse.map(x=>ligne(x.cat,"",`<b class="neg">+${f(x.plus)}</b>`,`${eur(x.v)} pour ${eur(x.lim)} prévus${annee?` en ${A.nb} mois`:""}`)).join(""))
+    +liste("subdep","Les sous-catégories dépassées",A.subDepasse.length,A.subDepasse.map(x=>ligne(x.cat,x.sub,`<b class="neg">+${f(x.plus)}</b>`,`${eur(x.v)} pour ${eur(x.lim)} prévus${annee?` en ${A.nb} mois`:""}`,x.niv)).join(""))
+    +liste("sanslim","❔ Sans limite",A.sansLimite.length,A.sansLimite.map(x=>ligne(x.cat,"",`<b>${f(x.v)}</b>`,"pas de limite : rien ne la retient")).join("")
+      +`<button class="btn ghost sm" style="margin-top:8px" onclick="proposerPlafonds()">💡 propose-moi des limites</button>`));
+  /* ✂️ le chasseur */
+  const ev=A.evitables.reduce((a,x)=>a+x.v,0), pl=A.plaisirs.reduce((a,x)=>a+x.v,0);
+  const chasse=carte("✂️","Ce que tu pourrais éviter","LE CHASSEUR",
+    (ev>0.005?`<b class="neg">${f(ev)}</b> sont partis dans ce que tu as marqué ✂️ évitable.`:`Rien de ce que tu as marqué ✂️ évitable n'a coûté ${lab}.`)
+    +(pl>0.005?` Tes 🎈 plaisirs : <b>${f(pl)}</b>${A.plaisirs[0]?`, surtout ${lblCS(A.plaisirs[0].cat,A.plaisirs[0].sub)}`:""}.`:""),
+    liste("evit","✂️ Évitable",A.evitables.length,A.evitables.map(x=>ligne(x.cat,x.sub,`<b>${f(x.v)}</b>`)).join(""))
+    +liste("plais","🎈 Plaisir",A.plaisirs.length,A.plaisirs.map(x=>ligne(x.cat,x.sub,`<b>${f(x.v)}</b>`)).join("")));
+  /* 📈 la sentinelle */
+  const sent=carte("📈","Ce qui grimpe","LA SENTINELLE",
+    A.ref==null||A.autres.length<2?"Il me faut au moins 3 mois saisis pour comparer à tes habitudes."
+    :A.hausses.length?`En <b>${MONTHS[A.ref]}</b>, <b>${A.hausses.length}</b> poste${A.hausses.length>1?"s sont":" est"} au-dessus de tes habitudes : <b class="neg">+${eur(A.hausses.reduce((a,x)=>a+x.plus,0))}</b> par rapport à tes autres mois.`
+    :`✅ En <b>${MONTHS[A.ref]}</b>, rien ne dépasse franchement tes habitudes.`,
+    liste("hausse","Le détail",A.hausses.length,A.hausses.map(x=>ligne(x.cat,x.sub,`<b class="neg">+${eur(x.plus)}</b>`,`${eur(x.v)} en ${MONTHS[A.ref]} · d'habitude ≈ ${eur(x.hab)}`,x.niv)).join("")));
+  /* 🔁 le détective */
+  const abT=A.abonnements.reduce((a,x)=>a+x.parMois,0), abE=A.abonnements.filter(x=>x.niv==="plaisir"||x.niv==="evitable").reduce((a,x)=>a+x.parMois,0);
+  const recLigne=x=>`<div class="lg"><div class="g"><b>${escH(x.nom||"—")}</b> ${nivEmo(x.niv)}<div class="muted" style="font-size:11px">${[lblCS(x.cat,x.sub),x.n?x.n+" fois · dernière le "+frDate(x.der):"",x.prochain?"📅 prochain le "+frDate(x.prochain):""].filter(Boolean).join(" · ")}</div></div>
+    <div class="d"><b>${eur(x.parMois)}</b><span class="muted" style="font-size:11px">/mois</span></div></div>`;
+  const deti=carte("🔁","Abonnements et dépenses qui reviennent","LE DÉTECTIVE",
+    A.abonnements.length?`<b>${A.abonnements.length}</b> abonnement${A.abonnements.length>1?"s":""} ou prélèvement${A.abonnements.length>1?"s":""} : environ <b>${eur(abT)}</b> par mois${abE>0.005?`, dont <b class="neg">${eur(abE)}</b> en 🎈 plaisir ou ✂️ évitable`:""}.`
+      :"Je n'ai pas encore repéré d'abonnement : il faut le même libellé au moins deux mois, ou un paiement à venir qui se répète.",
+    `<div class="muted" style="font-size:11.5px;margin:4px 0">Sur toute l'année, regroupé par libellé. Le détail nom par nom est aussi dans 🎯 Enveloppes, sous chaque sous-catégorie.</div>`
+    +liste("abo","🔁 Abonnements et prélèvements",A.abonnements.length,A.abonnements.map(recLigne).join(""))
+    +liste("reg","🛒 Achats qui reviennent souvent",Math.min(15,A.reguliers.length),A.reguliers.slice(0,15).map(recLigne).join("")));
+  /* 🪙 la loupe */
+  const pn=A.petits.reduce((a,x)=>a+x.n,0), pv=A.petits.reduce((a,x)=>a+x.v,0);
+  const loupe=carte("🪙","Les petites dépenses","LA LOUPE",
+    A.petits.length?`<b>${pn}</b> petits achats de 15 € ou moins ${lab} : <b class="neg">${f(pv)}</b>. Un par un ça ne se voit pas, mis bout à bout si.`:`✅ Pas de petites dépenses qui s'accumulent ${lab}.`,
+    liste("petits","Le détail",A.petits.length,A.petits.map(x=>ligne(x.cat,x.sub,`<b>${f(x.v)}</b>`,`${x.n} achat${x.n>1?"s":""}${annee?" sur l'année":""}`,x.niv)).join("")));
+  return verdict+balance+ctrl+chasse+sent+deti+loupe+pied;
 }
-function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
+
+/* ---------- 🐷 Épargne : tes objectifs du mois, le coach qui explique pourquoi, et tes projets ---------- */
+function viewEpargne(m){
+  const annee=m==="all", nbMois=annee?Math.max(1,moisRenseignes().length):1;
+  const C=Coach, cible=C.cible(), mc=C.moisCourant(), cs=C.conseil();
+  const ms=moisRenseignes().filter(mo=>mo<=mc);   /* les mois commencés */
+  const diagHTML=d=>d.causes.map(c=>`<div class="insight" style="margin-bottom:8px"><div class="em">${c.em}</div><div class="it" style="font-size:13px">${c.txt}</div></div>`).join("");
+  let coach;
+  if(!(cible>0)) coach=`<div class="card"><h2>🧭 Le coach épargne <span class="tag">COACH</span></h2><div class="muted" style="font-size:12.5px">Fixe un objectif ci-dessus, un compte et un montant par mois : le coach te dira chaque mois si tu l'as atteint, et sinon pourquoi.</div></div>`;
+  else {
+    const passes=ms.filter(mo=>mo<mc), reussis=passes.filter(mo=>C.fait(mo)>=cible-0.005).length, totFait=passes.reduce((a,mo)=>a+C.fait(mo),0);
+    const moisPli=mo=>{ const d=C.diag(mo);
+      return pli("coach:"+mo,`<span class="tot"><span>${d.ok?"✅":d.encours?"⏳":"❌"} <b>${moisMaj(mo)}</b>${d.encours?' <span class="etq">en cours</span>':""}</span><span><b class="${d.ok?"pos":""}">${eur(d.fait)}</b> <span class="muted">/ ${eur(d.cible)}</span></span></span>`,
+        d.ok?`<div class="muted" style="font-size:12.5px;padding:6px 0">🎉 Objectif atteint${d.fait>d.cible+0.005?`, et même ${eur(d.fait-d.cible)} de plus`:""}.</div>`:diagHTML(d),"sous"); };
+    let focus="";
+    if(!annee){ if(m>mc) focus=`<div class="muted" style="font-size:12.5px;margin-top:12px">${moisMaj(m)} n'a pas encore commencé.</div>`;
+      else { const d=C.diag(m);
+        focus=`<div style="font-weight:700;margin:14px 0 8px">${d.ok?`✅ ${moisMaj(m)} : objectif atteint${d.fait>d.cible+0.005?`, et même ${eur(d.fait-d.cible)} de plus`:""} 🎉`:d.encours?`⏳ ${moisMaj(m)} : il manque encore ${eur(d.manque)}`:`❌ Pourquoi je n'y suis pas arrivée en ${MONTHS[m]} : il manque ${eur(d.manque)}`}</div>${d.ok?"":diagHTML(d)}`; } }
+    coach=`<div class="card"><h2>🧭 Le coach épargne <span class="tag">COACH</span></h2>
+      ${passes.length?`${resume([["Mois réussis",`${reussis} sur ${passes.length}`],["Mis de côté",eur(totFait)],["Visé",eur(cible*passes.length)]])}
+        <div class="muted" style="font-size:11px;margin-top:4px">Sur tes ${passes.length} mois terminés, avec ton objectif actuel de ${eur(cible)} par mois.</div>`:""}
+      ${focus}
+      ${conseilHTML(cs)}
+      ${ms.length?pli("coach:histo",`<span class="tot"><span><b>📅 Mois par mois</b></span><span class="muted" style="font-size:12px">${ms.length} mois · touche un mois pour savoir pourquoi</span></span>`,ms.slice().reverse().map(moisPli).join(""),"",annee):""}
+    </div>`;
+  }
+  return epargneCardHTML(m,nbMois)+coach+projetsHTML(cs);
+}
+/* l'avis du coach sur l'objectif lui-même : le garder, faire autrement, ou le baisser */
+function conseilHTML(cs){
+  if(!cs) return `<div class="muted" style="font-size:12px;margin-top:10px">Le coach aura un avis sur ton objectif après ton premier mois complet.</div>`;
+  const pistes=cs.pistes.length?` Les pistes : ${cs.pistes.map(p=>`${escH(p.cat)}${p.sub?" / "+escH(p.sub):""}, ≈ ${eur(p.v)} par mois`).join(" ; ")}.`:"";
+  const plus=cs.capa-cs.cible, toujours=cs.ok===cs.n;
+  const t={garder:toujours
+      ?`<b>🎉 Bravo, garde ton objectif.</b> Tu l'as tenu tous les mois. En moyenne il te reste <b>${eur(cs.capa)}</b> par mois après tes dépenses${plus>=10?`, soit ${eur(plus)} de plus que ton objectif : tu pourrais viser un peu plus haut`:""}.`
+      :`<b>✅ Garde ton objectif.</b> En moyenne, il te reste <b>${eur(cs.capa)}</b> par mois après tes dépenses, et ton objectif est de <b>${eur(cs.cible)}</b> : il est réaliste. Ce qui coince, c'est le moment : fais le virement <b>le jour où ta paye arrive</b>, avant de dépenser (bouton ⇄), au lieu d'épargner ce qui reste à la fin du mois.`,
+    autrement:`<b>🔄 Garde-le, mais fais autrement.</b> ${cs.capa>0.005?`Avec tes habitudes, il te reste en moyenne <b>${eur(cs.capa)}</b> par mois.`:`Pour l'instant, tes mois finissent à zéro ou dans le rouge, environ <b>${eur(cs.capa)}</b> en moyenne.`} Pour mettre <b>${eur(cs.cible)}</b> de côté, il faudrait dépenser environ <b>${eur(cs.cible-cs.capa)}</b> de moins par mois. Tu dépenses en moyenne <b>${eur(cs.plaisir)}</b> en 🎈 plaisir et <b>${eur(cs.evit)}</b> en ✂️ évitable : c'est là qu'il faut couper.${pistes}${cs.reco>0?` Sinon, baisse ton objectif à <b>${eur(cs.reco)}</b>.`:""}`,
+    reduire:cs.reco>0?`<b>⬇️ Baisse ton objectif, pour l'instant.</b> Même sans aucun plaisir ni dépense évitable, il te resterait environ <b>${eur(cs.capaMax)}</b> par mois, moins que tes <b>${eur(cs.cible)}</b>. Vise plutôt <b>${eur(cs.reco)}</b> par mois, ce que tu arrives vraiment à garder, puis remonte petit à petit.`
+      :`<b>⬇️ Baisse ton objectif, pour l'instant.</b> En moyenne, tes mois finissent à zéro ou dans le rouge : même sans plaisirs ni dépenses évitables, il te resterait environ <b>${eur(Math.max(0,cs.capaMax))}</b> par mois. Commence par ramener tes dépenses sous ta paye (onglet 🔎 Analyse), puis fixe un petit objectif.`}[cs.verdict];
+  const puise=toujours&&cs.verdict!=="garder"?`<b>👏 Tu l'as tenu tous les mois</b>, mais en puisant dans ce qui restait sur tes comptes : en moyenne tes mois ne laissent que <b>${eur(cs.capa)}</b>, épargne comprise. Tes comptes du quotidien baissent donc petit à petit. `:"";
+  return `<div class="insight" style="margin-top:12px;border:1px solid var(--accent)"><div class="em">🧭</div><div class="it" style="font-size:13px">${puise}${t}<div class="muted" style="font-size:11px;margin-top:6px">D'après tes ${cs.n} mois terminés · objectif atteint ${cs.ok} fois sur ${cs.n}.</div></div></div>`; }
+/* les projets (vacances, voiture…) : ce qu'il faut mettre par mois, comparé à ce qu'il te reste en moyenne */
+function projetsHTML(cs){
+  const list=(DB.objectifs||[]).slice().sort((a,b)=>(a.echeance||"9999").localeCompare(b.echeance||"9999"));
+  /* ce qu'il reste en moyenne APRÈS ton épargne du mois ; les projets se le partagent, le plus proche d'abord */
+  const libre=cs?Math.max(0,cs.capa-cs.cible):null; let pris=0, besoinTot=0;
+  const rows=list.map(o=>{ const cible=+o.cible||0, actuel=+o.actuel||0, reste=Math.max(0,cible-actuel), atteint=cible>0&&actuel>=cible;
+    const mu=o.echeance?monthsUntil(o.echeance):null, moisR=mu!=null?Math.max(1,Math.ceil(mu)):null, besoin=reste>0&&moisR&&mu>=0?reste/moisR:0;
+    const dispo=libre!=null?Math.max(0,libre-pris):null; besoinTot+=besoin;
+    let avis;
+    if(atteint) avis="🎉 Atteint !";
+    else if(mu!=null&&mu<0) avis=`<span class="neg">L'échéance est passée</span> et il reste <b>${eur(reste)}</b> : choisis une nouvelle date (✏️ Modifier).`;
+    else if(!o.echeance) avis=dispo>0?`Sans date. Avec ce qu'il te reste en moyenne pour ce projet, ≈ ${eur(dispo)} par mois, il te faudrait environ ${Math.ceil(reste/dispo)} mois.`:"Sans date : ajoute une échéance pour savoir combien mettre par mois.";
+    else if(dispo==null) avis=`📌 Il faut <b>${eur(besoin)} par mois</b> d'ici le ${frDate(o.echeance)}. ${Coach.cible()>0?"Le coach dira si c'est jouable après ton premier mois complet.":"Remplis la carte 🐷 Mon épargne du mois : le coach pourra dire si c'est jouable."}`;
+    else if(besoin>dispo+0.005) avis=`⚠️ Il faut <b>${eur(besoin)} par mois</b> d'ici le ${frDate(o.echeance)}, ${dispo<0.005?(pris>0.005?"mais ce qu'il te reste part déjà dans les projets plus proches":"mais il ne te reste rien en moyenne après ton épargne du mois"):`mais il ne te reste en moyenne qu'environ <b>${eur(dispo)}</b> pour ce projet${pris>0.005?", une fois les projets plus proches servis":""}`}. Repousse la date${dispo>0.005?`, vers le ${dateDans(Math.ceil(reste/dispo))},`:""} ou baisse le montant.`;
+    else avis=`✅ Il faut <b>${eur(besoin)} par mois</b> d'ici le ${frDate(o.echeance)} : c'est jouable, il te reste en moyenne ≈ ${eur(dispo)} après ton épargne du mois${pris>0.005?" et les projets plus proches":""}.`;
+    if(!atteint&&besoin>0) pris+=besoin;
+    return `<div style="padding:9px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between;gap:10px;font-size:13px"><span>${escH(o.emoji||"🎯")} <b>${escH(o.nom)}</b></span><span style="white-space:nowrap">${eur(actuel)} <span class="muted">/ ${eur(cible)}</span></span></div>
+      <div class="track" style="height:7px;margin-top:5px"><div class="fill" style="width:${cible?Math.min(actuel/cible*100,100):0}%;background:${atteint?"var(--pos)":"var(--accent)"}"></div></div>
+      <div class="muted" style="font-size:12px;margin-top:5px">${avis}</div></div>`; }).join("");
+  const bilan=libre!=null&&besoinTot>0.005?`<div class="insight" style="margin:8px 0 2px"><div class="em">${besoinTot>libre+0.005?"⚠️":"✅"}</div><div class="it" style="font-size:12.5px">Tes projets demandent <b>${eur(besoinTot)}</b> par mois en tout. Après ton épargne du mois (${eur(cs.cible)}), il te reste en moyenne <b>${eur(libre)}</b>${besoinTot>libre+0.005?` : il manque ${eur(besoinTot-libre)} par mois.`:" : ça passe."}</div></div>`:"";
+  return `<div class="card"><h2>🎯 Mes projets <span class="tag">COACH</span></h2>
+    <div class="muted" style="font-size:12px;margin-bottom:4px">Tes projets à plus long terme (vacances, voiture…), et ce qu'il faut mettre de côté chaque mois pour y arriver à temps.</div>
+    ${bilan}${rows||`<div class="muted" style="font-size:12.5px;padding:6px 0">Aucun projet pour l'instant.</div>`}
+    <button class="btn ghost sm" style="margin-top:10px" onclick="ouvrirProjets()">${list.length?"✏️ Gérer mes projets →":"➕ Créer un projet →"}</button></div>`; }
+function dateDans(n){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()+n); return frDate(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-01"); }
+function setCatBudget(i,v){ const c=DB.categories[i]; if(!c)return; c.budget=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render();
+  const rep=subsRepartis(c); if(rep>c.budget+0.005) toast("⚠️ Ses sous-catégories font déjà "+eur(rep)+"/mois, plus que la limite de « "+c.name+" »"); }
 function convertAn(i){ const c=DB.categories[i]; if(!c)return; const v=+c.budget||0; if(v<=0){ toast("Tape d'abord le prix à l'année dans la case"); return; }
   c.budget=Math.round(v/12*100)/100; save(); render(); toast("Converti : "+eur(v)+"/an → "+eur(c.budget)+"/mois ✅"); }
 /* proposition : limite €/mois = moyenne dépensée par catégorie (celles sans limite) */
@@ -2042,14 +2619,14 @@ function epargneCardHTML(m,nbMois){
         <div class="muted" style="font-size:11px;margin-top:2px">${atteint?`✅ Objectif atteint — <b>${eur0(fait)}</b> mis ce mois-ci${fait>cible+0.005?` (dont ${eur0(fait-cible)} en plus 🎉)`:""}`:`déjà mis : <b>${eur0(fait)}</b> · reste <b>${eur0(reste)}</b> pour atteindre ton objectif`}${detail}</div>
       </div>`:""}
     </div>`;}).join("");
-  return `<div class="card"><h2>🎯 Mes objectifs d'épargne${k>1?" — cumul sur "+k+" mois":" du mois"}</h2>
+  return `<div class="card"><h2>🐷 Mon épargne du mois${k>1?" — cumul sur "+k+" mois":""}</h2>
     <div class="muted" style="font-size:12.5px;margin-bottom:10px">Fixe une cible par compte (Livret A, caisse, Swissborg…). Ce sont des <b>objectifs souples</b> : t'en approcher c'est déjà bien, faire moins un mois n'est pas grave. Le <b>⇄</b> prépare le virement du reste.<br>Tout ce qui arrive sur le compte compte : les virements <b>et</b> les entrées saisies dessus (une entrée d'espèces dans la caisse, par exemple) — moins ce qui en ressort.</div>
     ${rows||'<div class="muted" style="font-size:12.5px">Aucun objectif d\'épargne pour l\'instant.</div>'}
     ${totCible>0?`<div class="bbar" style="margin-top:12px">
       <div class="top"><span><b>Total mis de côté</b></span><span style="color:${totFait>=totCible-0.005?'var(--pos)':'var(--accent)'}">${eur0(totFait)} <span class="muted">/ ${eur0(totCible)} visés</span></span></div>
       <div class="track"><div class="fill" style="width:${totCible?Math.min(totFait/totCible*100,100):0}%;background:${totFait>=totCible-0.005?'var(--pos)':'var(--accent)'}"></div></div>
     </div>`:""}
-    <button class="btn ghost sm" style="width:auto;margin-top:10px" onclick="payeAddLine()">➕ Ajouter un objectif d'épargne</button>
+    <button class="btn ghost sm" style="width:auto;margin-top:10px" onclick="payeAddLine()">➕ Ajouter un compte à remplir</button>
   </div>`;
 }
 function payeAddLine(){ DB.paye.lines.push({id:uid(),acct:"",mode:"eur",val:0}); save(); render(); }
@@ -2086,27 +2663,27 @@ function viewObjectifs(){
         <button class="btn ghost sm" onclick="objAdd('${o.id}')">＋ Versement</button>
         <button class="btn ghost sm" onclick="objEdit('${o.id}')">✏️ Modifier</button>
         <button class="btn ghost sm" onclick="delObjectif('${o.id}')">🗑️</button></div></div>`;}).join("");
-  return `<div class="pagehead">🎯 Mes objectifs d'épargne</div>
-  <div class="card"><h2>${editing?"✏️ Modifier l'objectif":"➕ Nouvel objectif"}</h2>
+  return `<div class="pagehead">🎯 Mes projets d'épargne</div>
+  <div class="card"><h2>${editing?"✏️ Modifier le projet":"➕ Nouveau projet"}</h2>
     <div class="row2"><div class="field" style="flex:0 0 70px"><label>Icône</label><input id="oEmoji" class="emoji" value="${e.emoji||'🎯'}" style="width:100%"></div>
       <div class="field"><label>Nom</label><input id="oNom" placeholder="Ex : Vacances, Voiture…" value="${(e.nom||'').replace(/"/g,'&quot;')}"></div></div>
     <div class="row2"><div class="field"><label>Montant à atteindre (€)</label><input id="oCible" type="number" min="0" step="50" value="${e.cible||''}"></div>
       <div class="field"><label>Déjà épargné (€)</label><input id="oActuel" type="number" min="0" step="10" value="${e.actuel||0}"></div></div>
     <div class="field"><label>Échéance (facultatif)</label><input id="oEcheance" type="date" value="${e.echeance||''}"></div>
-    <button class="btn" onclick="saveObjectif()">${editing?"💾 Enregistrer":"✅ Créer l'objectif"}</button>
+    <button class="btn" onclick="saveObjectif()">${editing?"💾 Enregistrer":"✅ Créer le projet"}</button>
     ${editing?`<button class="btn ghost" onclick="UI.objEdit=null;render()" style="margin-top:8px">Annuler</button>`:""}</div>
-  ${cards||'<div class="card"><div class="empty">Aucun objectif pour l\'instant. Crée ton premier ci-dessus 👆</div></div>'}
-  <button class="btn ghost" onclick="go('dash')" style="margin-top:4px">← Retour au tableau de bord</button>`;
+  ${cards||'<div class="card"><div class="empty">Aucun projet pour l\'instant. Crée le premier ci-dessus 👆</div></div>'}
+  ${UI.objDepuis==="budget"?`<button class="btn ghost" onclick="ouvrirBudget('epargne')" style="margin-top:4px">← Retour à Budget, Épargne</button>`:`<button class="btn ghost" onclick="go('dash')" style="margin-top:4px">← Retour au tableau de bord</button>`}`;
 }
 function saveObjectif(){ const nom=document.getElementById("oNom").value.trim(); const cible=parseFloat(document.getElementById("oCible").value)||0;
   if(!nom){toast("Donne un nom");return;} if(cible<=0){toast("Indique un montant à atteindre");return;}
   const eid=(UI.objEdit&&UI.objEdit.id)?UI.objEdit.id:null;
   const obj={id:eid||uid(),nom,emoji:document.getElementById("oEmoji").value.trim()||"🎯",cible,actuel:parseFloat(document.getElementById("oActuel").value)||0,echeance:document.getElementById("oEcheance").value||"",createdAt:eid?(UI.objEdit.createdAt||todayISO()):todayISO()};
   if(eid){const i=DB.objectifs.findIndex(x=>x.id===eid); if(i>=0)DB.objectifs[i]=obj;} else DB.objectifs.push(obj);
-  UI.objEdit=null; save(); toast("Objectif enregistré ✅"); render(); }
+  UI.objEdit=null; save(); toast("Projet enregistré ✅"); render(); }
 function objAdd(id){ const o=(DB.objectifs||[]).find(x=>x.id===id); if(!o)return; const v=prompt("Montant à ajouter à « "+o.nom+" » (€) :",""); if(v==null)return; const n=parseFloat(String(v).replace(",",".")); if(isNaN(n)){toast("Montant invalide");return;} o.actuel=Math.max(0,(o.actuel||0)+n); save(); toast(eur0(n)+" ajoutés"); render(); }
 function objEdit(id){ UI.objEdit=(DB.objectifs||[]).find(x=>x.id===id); render(); window.scrollTo(0,0); }
-function delObjectif(id){ const o=(DB.objectifs||[]).find(x=>x.id===id); if(!o)return; if(!confirm("Supprimer l'objectif « "+o.nom+" » ?"))return; DB.objectifs=DB.objectifs.filter(x=>x.id!==id); save(); render(); }
+function delObjectif(id){ const o=(DB.objectifs||[]).find(x=>x.id===id); if(!o)return; if(!confirm("Supprimer le projet « "+o.nom+" » ?"))return; DB.objectifs=DB.objectifs.filter(x=>x.id!==id); save(); render(); }
 
 /* ===================== ASSISTANT IA ===================== */
 function fluxBar(fl){
@@ -2125,7 +2702,17 @@ function viewIA(){
   const projEp = f.elapsed<f.dim ? fl.epargne/f.elapsed*f.dim : fl.epargne;
   const pace=f.elapsed<f.dim?`Au rythme actuel (${eur0(f.spent)} dépensés en ${f.elapsed} j), tu finiras <b>${MONTHS[f.refMonth]}</b> autour de <span class="hl">${eur0(f.projMonth)}</span> de dépenses`:`Tu as dépensé <span class="hl">${eur0(f.spent)}</span> en <b>${MONTHS[f.refMonth]}</b>`;
   const vsB=f.totalBudget>0?(f.projMonth>f.totalBudget?` — soit <b class="neg">${eur0(f.projMonth-f.totalBudget)} au-dessus</b> du budget (${eur0(f.totalBudget)}).`:` — dans le budget de ${eur0(f.totalBudget)} ✅.`):".";
-  return `<div class="pagehead">🤖 Assistant</div>${monthSelector()}
+  return `<div class="pagehead">🤖 Assistant</div>
+  <div class="card">${pli("ia:aide",`<span class="tot"><span><b>❓ À quoi sert cette page</b></span><span class="muted" style="font-size:12px">touche pour ouvrir ou fermer</span></span>`,
+    `<div style="font-size:13px;line-height:1.55">C'est le <b>résumé de ton mois</b>, calculé par l'app à partir de tes opérations. Elle ne change rien à tes données, elle te raconte :
+      <div style="margin-top:6px">💸 <b>Où va ton argent</b> : ce qui est entré, ce que tu as dépensé, mis de côté, et ce qu'il reste sur tes comptes du quotidien.</div>
+      <div>💬 <b>Le Narrateur</b> : ton mois raconté en quelques phrases.</div>
+      <div>🚨 <b>La Vigie</b> : les enveloppes dépassées ou presque, les dépenses inhabituelles, les paiements des 7 prochains jours.</div>
+      <div>🔮 <b>Devin</b> : où tu en seras à la fin du mois et de l'année si tu continues comme ça.</div>
+      <div>📋 <b>Le rapport mensuel</b> : tout ça en détail, avec ton train de vie.</div>
+      <div style="margin-top:6px">Pour savoir <b>où tu dépenses trop</b>, c'est dans Budget, onglet 🔎 Analyse.</div></div>
+      <button class="btn ghost sm" style="margin-top:10px" onclick="ouvrirBudget('analyse')">🔎 Voir l'analyse de mes dépenses →</button>`,"",true)}</div>
+  ${monthSelector()}
   <div class="card" style="border:1px solid var(--accent)"><h2>📋 Rapport mensuel complet</h2>
     <div class="muted" style="font-size:12.5px;margin-bottom:10px">Passé, présent, futur · ton train de vie · dépenses essentielles vs plaisirs · budget à valeurs fixes.</div>
     <button class="btn" onclick="go('rapport')">📋 Voir mon rapport mensuel →</button></div>
@@ -2151,7 +2738,7 @@ function viewIA(){
     <div class="insight"><div class="em">📅</div><div class="it">${pace}${vsB}</div></div>
     ${fl.epargne>0?`<div class="insight"><div class="em">🐷</div><div class="it">Tu as mis <b>${eur0(fl.epargne)}</b> de côté ${lab}${f.elapsed<f.dim?` — au rythme actuel, ~<span class="hl">${eur0(projEp)}</span> d'ici la fin du mois`:""}.</div></div>`:""}
     <div class="insight"><div class="em">🗓️</div><div class="it">Sur l'année : <b>${eur0(f.totYear)}</b> dépensés en ${f.monthsElapsed.toFixed(1)} mois. Projection fin 2026 : <span class="hl">${eur0(f.projYear)}</span> de dépenses.</div></div>
-    <div class="insight"><div class="em">💡</div><div class="it">Pour rester dans les clous, vise <b>${eur0(f.totalBudget)}</b> de dépenses par mois.</div></div></div>`;
+    <div class="insight"><div class="em">💡</div><div class="it">${f.totalBudget>0?`Pour rester dans les clous, vise <b>${eur0(f.totalBudget)}</b> de dépenses par mois : c'est la somme des limites de tes enveloppes.`:`Mets des limites à tes enveloppes, dans Budget → 🎯 Enveloppes : je te dirai combien viser chaque mois.`}</div></div></div>`;
 }
 
 /* ===================== RAPPORT MENSUEL ===================== */
@@ -2198,7 +2785,7 @@ function ouPartMonArgentHTML(m){
   return `<div class="card"><h2>📊 Où part mon argent — ${moisMaj(m)}</h2>
     <div class="muted" style="font-size:12px;margin-bottom:4px">Chaque catégorie a sa couleur. La barre pleine, c'est la catégorie ; les barres claires en dessous, ses sous-catégories. Total dépensé : <b>${eur0(tot)}</b>.</div>
     ${blocs}
-    <button class="btn ghost sm" onclick="go('besoins')" style="margin-top:12px">✂️ Choisir ce qui est essentiel →</button></div>`;
+    <button class="btn ghost sm" onclick="go('besoins')" style="margin-top:12px">🧭 Classer mes dépenses →</button></div>`;
 }
 function viewRapport(){
   const m = UI.month==="all" ? new Date().getMonth() : UI.month;
@@ -2283,23 +2870,22 @@ function viewRapport(){
   <button class="btn ghost" onclick="go('ia')" style="margin-top:4px">← Retour à l'Assistant</button>`;
 }
 /* ----- Classer essentiel / non essentiel (catégories + sous-catégories) ----- */
-function besoinToggle(checked,onChange){ return `<label class="switch"><input type="checkbox" ${checked?'checked':''} onchange="${onChange}"><span class="sl"></span></label>`; }
+/* Ce que tu dis aux agents : 🔒 obligatoire, 🧷 essentiel, 🎈 plaisir ou ✂️ évitable, par catégorie et, si tu veux, par sous-catégorie */
 function viewBesoins(){
-  const cats=DB.categories.filter(c=>c.active&&genreDe(c)==="depense");   /* essentiel / envie : n'a de sens que pour les dépenses */
-  const blocks=cats.map(c=>{ const i=DB.categories.indexOf(c); const catEss=catBesoin(c.name);
-    const subRows=(c.subs||[]).map(s=>{ const eff=besoinOf(c.name,s); const explicite=!!(c.subsBesoin&&typeof c.subsBesoin[s]==="boolean");
-      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid var(--line)">
-        <span style="flex:1">${s} ${explicite?'':'<span class="muted" style="font-size:10.5px">(suit la catégorie)</span>'}</span>
-        <span style="font-size:11px;color:${eff?'var(--pos)':'var(--warn)'};font-weight:700;min-width:74px;text-align:right">${eff?'essentiel':'non essentiel'}</span>
-        ${besoinToggle(eff,`setSubBesoin(${i},'${s.replace(/'/g,"\\'")}',this.checked)`)}</div>`;}).join("");
-    return `<div class="card"><h2>${c.emoji} ${c.name}
-        <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:${catEss?'var(--pos)':'var(--warn)'};font-weight:700">${catEss?'essentiel':'non essentiel'} ${besoinToggle(catEss,`setCatBesoin(${i},this.checked)`)}</span></h2>
+  const cats=DB.categories.filter(c=>c.active&&genreDe(c)==="depense");   /* n'a de sens que pour les dépenses */
+  const blocks=cats.map(c=>{ const i=DB.categories.indexOf(c), nc=niveauCat(c);
+    const subRows=(c.subs||[]).map(s=>{ const propre=!!(c.subsNiveau&&NIVEAUX[c.subsNiveau[s]]);
+      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid var(--line);flex-wrap:wrap">
+        <span style="flex:1;min-width:110px">${escH(s)} ${nivEmo(niveauOf(c.name,s))}</span>${nivSelect(i,s,propre?c.subsNiveau[s]:"",nc)}</div>`;}).join("");
+    return `<div class="card"><h2>${escH(c.emoji)} ${escH(c.name)} <span style="margin-left:auto">${nivSelect(i,"",nc)}</span></h2>
       <div class="muted" style="font-size:11.5px;margin:-4px 0 6px">Réglage de la catégorie entière. Chaque sous-catégorie le suit, sauf si tu la précises ci-dessous.</div>
       ${subRows||'<div class="muted" style="font-size:12px">Aucune sous-catégorie.</div>'}</div>`;}).join("");
-  return `<div class="pagehead">✂️ Essentiel / non essentiel</div>
-  <div class="card"><div class="muted" style="font-size:12.5px">Choisis ce qui est <b class="pos">essentiel</b> (un besoin : santé, courses, voiture…) ou <b class="warn">non essentiel</b> (une envie : beauté, loisirs, sorties…). Tu peux régler une catégorie entière <b>et</b> préciser sous-catégorie par sous-catégorie. Ça alimente directement ton <b>rapport mensuel</b>.</div></div>
+  return `<div class="pagehead">🧭 Classer mes dépenses</div>
+  <div class="card"><div style="font-size:12.5px;line-height:1.6">Dis aux agents de l'analyse ce que représente chaque dépense :
+    ${Object.keys(NIVEAUX).map(k=>`<div>${NIVEAUX[k].emo} <b>${NIVEAUX[k].lbl}</b> <span class="muted">: ${NIVEAUX[k].aide}</span></div>`).join("")}
+    <div class="muted" style="margin-top:6px">Tu peux régler une catégorie entière <b>et</b> préciser sous-catégorie par sous-catégorie. Ça sert à Budget → 🔎 Analyse et à ton rapport mensuel, où obligatoire et essentiel comptent comme « essentiel ».</div></div></div>
   ${blocks}
-  <button class="btn ghost" onclick="go('rapport')" style="margin-top:4px">← Retour au rapport</button>`;
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px"><button class="btn" style="flex:1" onclick="ouvrirBudget('analyse')">🔎 Voir l'analyse →</button><button class="btn ghost" style="flex:1" onclick="go('rapport')">← Mon rapport</button></div>`;
 }
 
 /* ===================== HORAIRES ===================== */
@@ -2753,7 +3339,7 @@ function viewReglages(){
     <input class="si" value="${escH(c.name)}" onchange="setCat(${i},'name',this.value)">
     <select class="gensel" title="Genre : une enveloppe de dépense, ta paye, ou l'argent donné / rendu avec des personnes" onchange="setCatGenre(${i},this.value)">${Object.keys(GENRES).map(k=>`<option value="${k}" ${g===k?'selected':''}>${GENRES[k].emo} ${GENRES[k].lbl}</option>`).join("")}</select>
     <input class="si" style="flex:2;min-width:150px" value="${escH((c.subs||[]).join(', '))}" placeholder="${g==="argent"?"les personnes, séparées par des virgules":"sous-catégories séparées par des virgules"}" onchange="setCatSubs(${i},this.value)">
-    ${g==="depense"?`<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);white-space:nowrap" title="Dépense essentielle (besoin) ou non (envie) — utilisé dans le rapport"><input type="checkbox" ${c.besoin?'checked':''} onchange="setCatBesoin(${i},this.checked)"> essentiel</label>`:""}
+    ${g==="depense"?nivSelect(i,"",niveauCat(c)):""}
     <label class="switch"><input type="checkbox" ${c.active?'checked':''} onchange="setCat(${i},'active',this.checked)"><span class="sl"></span></label>
     <button class="del" title="Fusionner dans une autre catégorie" onclick="UI.fusionCat=(UI.fusionCat===${i}?null:${i});render()">🔀</button>
     <button class="del" onclick="delCat(${i})">🗑️</button>
@@ -2787,14 +3373,14 @@ function viewReglages(){
       <input id="nbNom" class="si" placeholder="Nouvelle banque (ex : Boursorama)">
       <button class="btn ghost sm" style="width:auto" onclick="addBanque()">+ Ajouter</button></div></div>
   <div class="card"><h2>🏷️ Catégories</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Renomme, ajoute ou désactive des catégories. Les sous-catégories sont séparées par des virgules. Coche <b>« essentiel »</b> si c'est un besoin (loyer, courses, santé…) plutôt qu'une envie — ça sert au rapport mensuel.<br>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Renomme, ajoute ou désactive des catégories. Les sous-catégories sont séparées par des virgules. Le menu 🔒 🧷 🎈 ✂️ dit aux agents de l'analyse si c'est obligatoire, essentiel, un plaisir ou évitable.<br>
       <b>Genre</b> : 🎯 <b>Dépense</b> = une enveloppe du budget (une <i>entrée</i> dedans = un remboursement qui l'allège) · 💶 <b>Paye</b> = ce que tu gagnes · 🤝 <b>Argent</b> = ce qu'on te donne ou t'avance et ce que tu rends, avec une sous-catégorie par personne. 🔀 fusionne une catégorie dans une autre (ses opérations la suivent).</div>
     ${cats}
     <div class="row2" style="margin-top:14px"><div class="field" style="margin:0"><input id="ncEmoji" class="emoji" placeholder="🏷️" style="width:100%"></div>
       <div class="field" style="margin:0"><input id="ncName" placeholder="Nom de la nouvelle catégorie"></div></div>
     <div class="field" style="margin:8px 0 0"><select id="ncGenre">${Object.keys(GENRES).map(k=>`<option value="${k}">${GENRES[k].emo} ${GENRES[k].lbl}</option>`).join("")}</select></div>
     <button class="btn ghost sm" onclick="addCat()" style="margin-top:8px">+ Ajouter la catégorie</button>
-    <button class="btn ghost sm" onclick="go('besoins')" style="margin-top:8px">✂️ Classer essentiel / non essentiel (détail par sous-catégorie) →</button></div>
+    <button class="btn ghost sm" onclick="go('besoins')" style="margin-top:8px">🧭 Classer obligatoire, essentiel, plaisir, évitable (détail par sous-catégorie) →</button></div>
   <div class="card"><h2>📝 Mes libellés</h2>
     <div class="muted" style="font-size:12.5px;margin-bottom:10px">Ta liste de libellés favoris : ils te sont proposés en premier (⭐) quand tu saisis une opération, avec leur catégorie pré-remplie. L'app te propose aussi automatiquement tout ce que tu as déjà saisi.</div>
     ${libRows}
@@ -2850,8 +3436,19 @@ function setCat(i,f,v){ const c=DB.categories[i]; if(!c)return;
     if(catObj(nn)){ toast("« "+nn+" » existe déjà : pour réunir les deux, utilise 🔀"); render(); return; }   /* deux catégories du même nom : la 2e serait ignorée */
     renommerRefs(old,nn); c.name=nn; save(); render(); return; }
   c[f]= f==="active"?!!v:v; save(); if(f==="active"||f==="emoji")render(); }
-function setCatSubs(i,v){ DB.categories[i].subs=v.split(",").map(s=>s.trim()).filter(Boolean); save(); }
-function setCatBesoin(i,v){ if(DB.categories[i]){ DB.categories[i].besoin=!!v; save(); } }
+function setCatSubs(i,v){ const c=DB.categories[i]; if(!c) return;
+  const nv=[], vus={}; v.split(",").map(s=>s.trim()).filter(Boolean).forEach(s=>{ const k=s.toLowerCase(); if(!vus[k]){ vus[k]=1; nv.push(s); } });   /* sans doublon */
+  const av=(c.subs||[]).slice(), partis=av.filter(s=>nv.indexOf(s)<0), venus=nv.filter(s=>av.indexOf(s)<0);
+  /* un seul nom changé, à la même place : c'est un renommage, tout ce qui le cite peut suivre */
+  if(partis.length===1&&venus.length===1&&av.indexOf(partis[0])===nv.indexOf(venus[0])) renommerSub(c,partis[0],venus[0]);
+  c.subs=nv; save(); render(); }
+function renommerSub(c,old,nn){ const n=DB.transactions.filter(t=>t.categorie===c.name&&t.sousCategorie===old).length+(DB.future||[]).filter(f=>f.categorie===c.name&&f.sousCategorie===old).length;
+  if(!confirm(`Renommer « ${old} » en « ${nn} » dans « ${c.name} » ?`+(n?`\n${n} opération${n>1?"s":""} ou paiement${n>1?"s":""} à venir suivr${n>1?"ont":"a"}, avec sa limite et son niveau.`:`\nSa limite et son niveau suivront.`)+`\n\nAnnuler = « ${old} » disparaît simplement de la liste.`)) return;
+  DB.transactions.concat(DB.future||[]).forEach(t=>{ if(t.categorie===c.name&&t.sousCategorie===old) t.sousCategorie=nn; });
+  (DB.libelles||[]).forEach(l=>{ if(l.cat===c.name&&l.sub===old) l.sub=nn; });
+  Object.values(DB.trained||{}).forEach(x=>{ if(Array.isArray(x)&&x[0]===c.name&&x[1]===old) x[1]=nn; });
+  ["subsBudget","subsNiveau","subsBesoin"].forEach(f=>{ const o=c[f]; if(o&&old in o){ o[nn]=o[old]; delete o[old]; } }); }
+function setCatBesoin(i,v){ setNiveau(i,"",v?"essentiel":"plaisir"); }
 function usagesCat(name){ return DB.transactions.filter(t=>t.categorie===name).length+(DB.future||[]).filter(f=>f.categorie===name).length; }
 function delCat(i){ const c=DB.categories[i]; if(!c) return; UI.fusionCat=null;
   const n=usagesCat(c.name);
@@ -2906,6 +3503,14 @@ function fusionnerDans(src,dst){
   /* essentiel / envie : les autres sous-catégories venues de la source gardent le réglage de la source */
   if(gd==="depense"&&src.besoin!==dst.besoin){ dst.subsBesoin=dst.subsBesoin||{};
     subsSrc.forEach(x=>{ if(dejaDst.indexOf(x)<0&&!(x in dst.subsBesoin)) dst.subsBesoin[x]=!!src.besoin; }); }
+  /* même chose pour le niveau (obligatoire, essentiel, plaisir, évitable) */
+  if(src.subsNiveau){ dst.subsNiveau=dst.subsNiveau||{}; Object.keys(src.subsNiveau).forEach(k=>{ if(!(k in dst.subsNiveau)) dst.subsNiveau[k]=src.subsNiveau[k]; }); }
+  if(gd==="depense"&&niveauCat(src)!==niveauCat(dst)){ dst.subsNiveau=dst.subsNiveau||{};
+    subsSrc.forEach(x=>{ if(dejaDst.indexOf(x)<0&&!(x in dst.subsNiveau)) dst.subsNiveau[x]=niveauCat(src); }); }
+  /* deux enveloppes : les limites des sous-catégories s'additionnent, la catégorie les contient toujours */
+  if(gs==="depense"&&gd==="depense"&&src.subsBudget){ dst.subsBudget=dst.subsBudget||{};
+    Object.keys(src.subsBudget).forEach(k=>{ const v=+src.subsBudget[k]||0; if(v>0) dst.subsBudget[k]=Math.round(((+dst.subsBudget[k]||0)+v)*100)/100; });
+    const rep=subsRepartis(dst); if(rep>catPlafond(dst)+0.005) dst.budget=rep; }
   DB.categories.splice(DB.categories.indexOf(src),1); }
 function setLib(i,f,v){ const l=DB.libelles[i]; if(!l)return;
   if(f==="txt"){ l.txt=v.trim()||l.txt; } else if(f==="cat"){ l.cat=v; l.sub=""; } else l[f]=v;
@@ -2962,6 +3567,7 @@ window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delC
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
 window.starLib=starLib;window.setLib=setLib;window.delLib=delLib;window.addLib=addLib;
 window.setBanque=setBanque;window.delBanque=delBanque;window.addBanque=addBanque;window.rangerParBanque=rangerParBanque;window.setPref=setPref;
+window.setBudTab=setBudTab;window.ouvrirProjets=ouvrirProjets;window.ouvrirBudget=ouvrirBudget;window.setPayeTri=setPayeTri;window.plier=plier;window.setNiveau=setNiveau;window.setSubBudget=setSubBudget;
 window.payeAddLine=payeAddLine;window.payeSet=payeSet;window.payeDel=payeDel;window.payeTransfer=payeTransfer;window.proposerPlafonds=proposerPlafonds;window.convertAn=convertAn;window.setPayeDuMois=setPayeDuMois;window.payeHabituelle=payeHabituelle;
 window.signin=signin;window.signup=signup;window.logout=logout;window.showLogin=showLogin;
 /* ---------- Thème jour / nuit (préférence locale à l'appareil) ---------- */
