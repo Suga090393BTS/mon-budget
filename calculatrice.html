@@ -5,30 +5,44 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Calculatrice">
-<meta name="theme-color" content="#0f766e">
+<meta name="theme-color" content="#cdece5">
 <title>🧮 Calculatrice — ticket</title>
 <style>
 :root{
-  --bg:#f1f5f9; --surface:#fff; --surface-2:#f1f5f9; --text:#0f172a; --muted:#64748b;
-  --line:#e2e8f0; --accent:#0f766e; --accent-soft:#ccfbf1; --neg:#dc2626; --radius:18px;
-  --shadow:0 10px 30px rgba(15,23,42,.08);
+  --bg-a:#cdece5; --bg-b:#f1f6f3; --bg-c:#fbdfd3;
+  --bg:#f1f6f3; --surface:rgba(255,255,255,.74); --surface-2:rgba(255,255,255,.62); --text:#1e2b36; --muted:#6a7b89;
+  --line:rgba(31,90,84,.13); --liseret:rgba(255,255,255,.95);
+  --accent:#36b3a4; --accent-2:#67d4c4; --accent-ink:#1d8a7d; --accent-soft:rgba(54,179,164,.15);
+  --mint:rgba(215,242,236,.85); --neg:#e2605a; --radius:22px;
+  --shadow:0 12px 32px rgba(38,92,86,.12); --shadow-s:0 4px 14px rgba(38,92,86,.08);
+  --shadow-accent:0 8px 20px rgba(54,179,164,.35);
 }
 @media(prefers-color-scheme:dark){
-  :root{ --bg:#0b1220; --surface:#131c2e; --surface-2:#1b2740; --text:#e8eef9; --muted:#94a3b8;
-    --line:#26334d; --accent:#2dd4bf; --accent-soft:#134e4a; --shadow:0 10px 30px rgba(0,0,0,.4); }
+  :root{ --bg-a:#0f2327; --bg-b:#151c21; --bg-c:#2a1d22;
+    --bg:#151c21; --surface:rgba(255,255,255,.07); --surface-2:rgba(255,255,255,.09); --text:#eef3f2; --muted:#9db0ad;
+    --line:rgba(255,255,255,.12); --liseret:rgba(255,255,255,.12);
+    --accent:#3fc0b0; --accent-2:#6fdccb; --accent-ink:#8ae8da; --accent-soft:rgba(79,209,192,.16);
+    --mint:rgba(79,209,192,.13); --neg:#ff7b73;
+    --shadow:0 12px 32px rgba(0,0,0,.35); --shadow-s:0 4px 14px rgba(0,0,0,.25);
+    --shadow-accent:0 8px 20px rgba(63,192,176,.25); }
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);
-  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-  padding:14px;display:flex;justify-content:center}
+html{background:var(--bg-b)}
+body{margin:0;background:transparent;color:var(--text);
+  font:15px/1.5 ui-rounded,-apple-system,BlinkMacSystemFont,"SF Pro Rounded","Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;padding:14px;display:flex;justify-content:center}
+/* Fond menthe → pêche, comme l'app */
+body::before{content:"";position:fixed;inset:0;z-index:-1;
+  background:linear-gradient(135deg,var(--bg-a) 0%,var(--bg-b) 48%,var(--bg-c) 100%)}
 .appli{width:100%;max-width:430px}
 h1{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
 h1 .petit{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--muted)}
-h1 .ver{font-size:11px;font-weight:700;color:var(--muted)}
-.carte{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:13px}
+h1 .ver{font-size:11px;font-weight:700;color:var(--muted);background:var(--mint);border:1px solid var(--liseret);padding:2px 8px;border-radius:999px}
+.carte{background:var(--surface);border:1px solid var(--liseret);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;margin-bottom:13px;
+  -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
 
 /* ---------- écran ---------- */
-.ecran{background:var(--surface-2);border-radius:14px;padding:13px 15px;text-align:right;min-height:88px;
+.ecran{background:var(--surface-2);border:1px solid var(--liseret);border-radius:18px;padding:13px 15px;text-align:right;min-height:88px;
   display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden}
 .calcul{font-size:21px;font-weight:600;min-height:28px;word-break:break-all;color:var(--muted)}
 .resultat{font-size:33px;font-weight:800;letter-spacing:-1px;word-break:break-all}
@@ -36,14 +50,14 @@ h1 .ver{font-size:11px;font-weight:700;color:var(--muted)}
 
 /* ---------- clavier ---------- */
 .touches{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
-.touches button{font:inherit;font-size:21px;font-weight:700;padding:16px 0;border-radius:14px;cursor:pointer;
-  border:1px solid var(--line);background:var(--surface-2);color:var(--text);transition:transform .06s,filter .15s;
+.touches button{font:inherit;font-size:21px;font-weight:700;padding:16px 0;border-radius:999px;cursor:pointer;
+  border:1px solid var(--liseret);background:var(--surface-2);color:var(--text);transition:transform .06s,filter .15s;box-shadow:var(--shadow-s);
   -webkit-tap-highlight-color:transparent;user-select:none}
 .touches button:active{transform:scale(.95)}
 .touches button:hover{filter:brightness(1.06)}
-.touches .op{background:var(--accent-soft);color:var(--accent);font-size:23px}
+.touches .op{background:var(--mint);color:var(--accent-ink);font-size:23px}
 .touches .eff{color:var(--neg)}
-.touches .eq{background:var(--accent);color:#fff;border-color:var(--accent)}
+.touches .eq{background:linear-gradient(135deg,var(--accent-2),var(--accent));color:#fff;border-color:transparent;box-shadow:var(--shadow-accent)}
 .touches .large{grid-column:span 2}
 
 /* ---------- ticket ---------- */
@@ -60,10 +74,10 @@ h1 .ver{font-size:11px;font-weight:700;color:var(--muted)}
   margin-top:10px;padding-top:9px;font-weight:800;font-size:17px}
 .vide{text-align:center;color:var(--muted);font-size:13px;padding:20px 8px}
 .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-.btn{flex:1;min-width:120px;font:inherit;font-size:13.5px;font-weight:700;padding:11px 10px;border-radius:12px;cursor:pointer;
-  border:1px solid var(--line);background:var(--surface-2);color:var(--text)}
+.btn{flex:1;min-width:120px;font:inherit;font-size:13.5px;font-weight:700;padding:11px 14px;border-radius:999px;cursor:pointer;
+  border:1px solid var(--liseret);background:var(--surface-2);color:var(--accent-ink);box-shadow:var(--shadow-s)}
 .btn:hover{filter:brightness(1.06)}
-.btn.vert{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.vert{background:linear-gradient(135deg,var(--accent-2),var(--accent));color:#fff;border-color:transparent;box-shadow:var(--shadow-accent)}
 .btn.rouge{color:var(--neg)}
 .aide{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.6}
 
@@ -71,9 +85,11 @@ h1 .ver{font-size:11px;font-weight:700;color:var(--muted)}
 @media print{
   @page{margin:10mm}
   body{background:#fff;color:#000;padding:0;display:block}
+  body::before{display:none!important}
+  html{background:#fff}
   .appli{max-width:none}
   .sansimpression{display:none!important}
-  .carte{box-shadow:none;border:none;padding:0;margin:0;background:#fff}
+  .carte{box-shadow:none;border:none;padding:0;margin:0;background:#fff;-webkit-backdrop-filter:none;backdrop-filter:none}
   .ticket{font-size:12px}
   .tk{border-bottom:1px dashed #999}
   .total{border-top:2px solid #000}
@@ -104,7 +120,7 @@ h1 .ver{font-size:11px;font-weight:700;color:var(--muted)}
 <div class="appli">
 
   <!-- VERSION : le même numéro que dans index.html, à augmenter ensemble à chaque publication -->
-  <h1 class="sansimpression">🧮 Calculatrice <span class="ver" title="Version — change à chaque publication">v13 · 15/10</span> <span class="petit" id="compteur"></span></h1>
+  <h1 class="sansimpression">🧮 Calculatrice <span class="ver" title="Version — change à chaque publication">v14 · 23/10</span> <span class="petit" id="compteur"></span></h1>
 
   <div class="carte carte-calc sansimpression">
     <div class="ecran">
