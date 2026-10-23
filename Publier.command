@@ -50,14 +50,21 @@ done
 git commit -q -m "Mise à jour de l'app${ICI:+ (v$ICI)}"
 echo "✅ Modifications enregistrées."
 
-if git push -q origin main; then
+if ERREUR=$(git push origin main 2>&1); then
   echo
   echo "🎉 C'est en ligne${ICI:+ (v$ICI)} ! Attends une à deux minutes, puis rouvre l'app"
   echo "   sur ton téléphone et sur ton Mac : elle sera à jour toute seule."
 else
   echo
-  echo "⚠️  GitHub a refusé la connexion."
-  echo "   Refais la première fois : identifiant GitHub + jeton comme mot de passe."
+  echo "⚠️  GitHub a refusé l'envoi. Voici ce qu'il répond :"
+  echo "$ERREUR" | sed 's/^/   /'
+  echo
+  if [[ "$ERREUR" == *GH007* ]]; then
+    echo "   → Ton adresse e-mail est privée sur GitHub. Une fois pour toutes :"
+    echo "     git -C \"$PWD\" config user.email \"296114518+Suga090393BTS@users.noreply.github.com\""
+  else
+    echo "   → Si GitHub demande un mot de passe : identifiant GitHub + jeton d'accès."
+  fi
 fi
 
 fin 0
