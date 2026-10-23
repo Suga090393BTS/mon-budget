@@ -294,6 +294,40 @@ body.calc-ouverte .toast{bottom:calc(min(370px,55vh) + var(--navh,0px) + 14px)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media(min-width:880px){.toast{bottom:30px}}
 .pagehead{font-size:21px;font-weight:800;margin:2px 0 16px;letter-spacing:-.4px}
+/* Tiroir-caisse : les billets au fond, les pièces devant, comme une vraie caisse enregistreuse.
+   Chaque coupure a son compartiment : rien ne déborde, même sur téléphone. */
+.tiroir-caisse{background:linear-gradient(180deg,var(--mint),var(--surface-2));border:1px solid var(--liseret);
+  border-radius:20px;padding:12px 12px 0;box-shadow:var(--shadow-s),inset 0 2px 12px rgba(38,92,86,.10)}
+.tiroir+.tiroir{margin-top:11px;padding-top:11px;border-top:1px dashed var(--line)}
+.tiroir .tlbl{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0 0 8px 2px}
+.tiroir .cases{display:grid;gap:8px}
+.tiroir.billets .cases{grid-template-columns:repeat(auto-fit,minmax(86px,1fr))}
+.tiroir.pieces .cases{grid-template-columns:repeat(auto-fit,minmax(64px,1fr))}
+/* dès qu'il y a la place : un seul rang de billets et un seul rang de pièces, comme un vrai tiroir */
+@media(min-width:520px){
+  .tiroir.billets .cases{grid-template-columns:repeat(7,minmax(0,1fr))}
+  .tiroir.pieces .cases{grid-template-columns:repeat(8,minmax(0,1fr))}
+}
+.case{background:var(--surface-solid);border:1px solid var(--line);border-radius:13px;padding:9px 7px;min-width:0;
+  display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.65),0 1px 3px rgba(38,92,86,.10)}
+.case.vide{opacity:.42}
+.case.pret{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.case .vign{display:inline-flex;align-items:center;justify-content:center;color:#17202e;font-weight:800;margin:1px 5px 4px 0}
+.vign.b{width:clamp(40px,92%,56px);aspect-ratio:5/3;border-radius:5px;font-size:11px}
+.vign.c{width:clamp(30px,76%,38px);aspect-ratio:1;border-radius:50%;font-size:10px}
+.case .nb{font-size:17px;font-weight:800;line-height:1.1}
+.case .rien{font-size:15px;font-weight:800;color:var(--muted)}
+.case .val{font-size:12px;font-weight:700;line-height:1.25;overflow-wrap:anywhere}
+.case .pk{font-size:10.5px;color:var(--muted);font-weight:650;line-height:1.2}
+.case .jauge{width:100%;height:5px;border-radius:999px;background:var(--surface-2);overflow:hidden;margin-top:2px}
+.case .jauge>i{display:block;height:100%;background:var(--accent);border-radius:999px}
+.case .enc{font-size:10px;color:var(--muted);line-height:1.25}
+.case .ok{font-size:10.5px;color:var(--accent-ink);font-weight:800;line-height:1.25}
+/* la façade du tiroir, avec sa poignée */
+.poignee{height:22px;margin:12px -12px 0;border-radius:0 0 19px 19px;background:linear-gradient(180deg,var(--surface-2),var(--mint));
+  border-top:1px solid var(--liseret);display:grid;place-items:center}
+.poignee::before{content:"";width:64px;height:6px;border-radius:999px;background:var(--line)}
 /* Impression : on ne garde que la feuille du relevé, en noir sur blanc */
 @media print{
   @page{margin:13mm}
@@ -359,7 +393,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v14 · 23/10</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v15 · 23/10</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -2050,35 +2084,47 @@ function caisseState(){
   });
   return {a,allowPack,map};
 }
+/* la vignette du billet / de la pièce, avec une petite pile derrière quand il y en a plusieurs */
+function denomPile(d,n){
+  const bg=DENOM_BG[String(d.v)]||"var(--surface-2)", note=isNote(d.v);
+  const ep=n>=12?3:n>=5?2:n>=1?1:0;
+  let sh="inset 0 0 0 1px rgba(0,0,0,.18)";
+  for(let i=1;i<=ep;i++) sh+=", "+(i*2)+"px "+(i*2)+"px 0 rgba(0,0,0,"+(0.15-i*0.03).toFixed(2)+")";
+  sh+=", 0 1px 3px rgba(0,0,0,.2)";
+  return `<span class="vign ${note?"b":"c"}" style="background:${bg};box-shadow:${sh}">${d.l}</span>`;
+}
+/* Le tiroir : un compartiment par coupure, les billets au fond, les pièces devant.
+   Les compartiments vides restent visibles (comme dans une vraie caisse) mais effacés. */
 function renderCaisseVisu(){
   const box=document.getElementById("caisseVisu"); if(!box) return;
   const {a,allowPack,map}=caisseState(); if(!a){ box.innerHTML=""; return; }
-  const tiles=[], packs=[]; let grand=0;
-  DENOMS.forEach(d=>{
+  const packs=[]; let grand=0;
+  const caseHTML=(d)=>{
     const k=denomKey(d.v), c=map[k]||{p:0,r:0}, n=allowPack?(ROLLN[String(d.v)]||0):0;
-    const val=Math.round((d.v*c.p + d.v*n*c.r)*100)/100; grand+=val;
-    if(!c.p && !c.r) return;
-    const can=n?Math.floor(c.p/n):0;
+    const p=c.p||0, r=c.r||0;
+    const val=Math.round((d.v*p + d.v*n*r)*100)/100; grand+=val;
+    const can=n?Math.floor(p/n):0;
     if(can) packs.push({d,k,n,can});
-    const reste=n?(n-(c.p%n)):0, unPack=isNote(d.v)?"une liasse":"un rouleau";
-    let bar="";
-    if(can) bar=`<div style="font-size:11.5px;margin-top:8px;color:var(--accent);font-weight:700">🎉 ${can} ${packWord(d.v,can)} à faire !</div>`;
-    else if(n && c.p>=n/4) bar=`<div style="height:6px;border-radius:99px;background:var(--surface);overflow:hidden;margin-top:8px"><div style="height:100%;width:${Math.round(c.p/n*100)}%;background:var(--accent)"></div></div>
-      <div class="muted" style="font-size:11px;margin-top:4px">encore <b>${reste}</b> pour ${unPack}</div>`;
-    tiles.push(`<div style="border:1px solid ${can?'var(--accent)':'var(--line)'};border-radius:14px;padding:11px;background:var(--surface-2)">
-      <div style="display:flex;align-items:center;gap:9px">
-        ${denomChip(d,true)}
-        <div style="min-width:0;flex:1">
-          <div style="font-size:19px;font-weight:800;line-height:1.15;white-space:nowrap">×${c.p} <span class="muted" style="font-size:11px;font-weight:600">${looseWord(d.v,c.p)}</span></div>
-          <div style="font-weight:700;font-size:12.5px;white-space:nowrap">${eur(val)}${c.r?` <span class="muted" style="font-weight:600">· ${c.r} ${packWord(d.v,c.r)}</span>`:""}</div>
-        </div>
-      </div>${bar}</div>`);
-  });
+    let bas="";
+    if(can) bas=`<div class="ok">🎉 ${can} ${packWord(d.v,can)} à faire</div>`;
+    else if(n && p>=n/4){ const reste=n-(p%n);
+      bas=`<div class="jauge"><i style="width:${Math.round((p%n)/n*100)}%"></i></div>
+        <div class="enc">encore <b>${reste}</b> pour ${isNote(d.v)?"une liasse":"un rouleau"}</div>`; }
+    if(!p && !r) return `<div class="case vide">${denomPile(d,0)}<div class="rien">—</div></div>`;
+    return `<div class="case${can?" pret":""}">
+      ${denomPile(d,p)}
+      <div class="nb">×${p}</div>
+      <div class="val">${eur(val)}</div>
+      ${r?`<div class="pk">+ ${r} ${packWord(d.v,r)}</div>`:""}
+      ${bas}</div>`;
+  };
+  const billets=DENOMS.filter(d=>isNote(d.v)).map(caseHTML).join("");
+  const pieces=DENOMS.filter(d=>!isNote(d.v)).map(caseHTML).join("");
   const alerte=packs.length?`<div class="card" style="border:1.5px solid var(--accent)">
     <h2>🎉 C'est bon, tu peux regrouper</h2>
-    ${packs.map(p=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)">
+    ${packs.map(p=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);flex-wrap:wrap">
       ${denomChip(p.d)}
-      <div style="flex:1;min-width:0"><b style="font-size:13.5px">${p.can} ${packWord(p.d.v,p.can)} de ${p.d.l}</b>
+      <div style="flex:1;min-width:130px"><b style="font-size:13.5px">${p.can} ${packWord(p.d.v,p.can)} de ${p.d.l}</b>
         <div class="muted" style="font-size:11.5px">${p.n} ${looseWord(p.d.v,p.n)} par ${packWord(p.d.v,1)} · ${eur(p.d.v*p.n)} chacun</div></div>
       <button class="btn sm" onclick="makePack('${p.k}',${p.n},${p.can})">C'est fait ✅</button>
     </div>`).join("")}
@@ -2086,8 +2132,11 @@ function renderCaisseVisu(){
   </div>`:"";
   box.innerHTML=alerte+`<div class="card">
     <h2>👀 Dans « ${escH(a.name)}${bqPoint(a)} », tu as <span class="tag">${eur(Math.round(grand*100)/100)}</span></h2>
-    ${tiles.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">${tiles.join("")}</div>`
-      :`<div class="empty">Rien de compté pour l'instant — remplis les cases plus bas.</div>`}
+    <div class="tiroir-caisse">
+      <div class="tiroir billets"><div class="tlbl">💶 Billets${allowPack?" & liasses":""}</div><div class="cases">${billets}</div></div>
+      <div class="tiroir pieces"><div class="tlbl">🪙 Pièces${allowPack?" & rouleaux":""}</div><div class="cases">${pieces}</div></div>
+      <div class="poignee"></div>
+    </div>
     <div class="muted" style="font-size:11.5px;margin-top:10px">Ce que tu tapes en dessous s'affiche ici tout de suite.</div>
   </div>`;
 }
