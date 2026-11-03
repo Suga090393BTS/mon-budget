@@ -7,8 +7,8 @@
 <title>Mon budget</title>
 <!-- PWA : installable comme une appli -->
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=2">
+<link rel="icon" type="image/png" href="icon-192.png?v=2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -294,6 +294,27 @@ body.calc-ouverte .toast{bottom:calc(min(370px,55vh) + var(--navh,0px) + 14px)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media(min-width:880px){.toast{bottom:30px}}
 .pagehead{font-size:21px;font-weight:800;margin:2px 0 16px;letter-spacing:-.4px}
+/* Fenêtres de l'app (à la place de confirm() et prompt() du navigateur, qui cassent l'identité en PWA) */
+.mbackdrop{position:fixed;inset:0;z-index:300;background:rgba(16,44,42,.38);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px}
+.mcard{background:var(--surface-solid);border:1px solid var(--liseret);border-radius:24px;box-shadow:var(--shadow);
+  width:min(94vw,440px);max-height:84vh;overflow-y:auto;padding:20px;animation:mpop .18s ease}
+@keyframes mpop{from{opacity:0;transform:translateY(10px) scale(.98)}}
+.mcard h3{margin:0 0 8px;font-size:17px;font-weight:800;line-height:1.3}
+.mcard .mtxt{margin:0 0 15px;font-size:14px;line-height:1.55;color:var(--text)}
+.mcard .msaisie{width:100%;font:inherit;font-size:16px;padding:12px 14px;border-radius:16px;border:1px solid var(--line);
+  background:var(--field);color:var(--text);margin-bottom:15px;box-shadow:var(--shadow-s)}
+.mcard .msaisie:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.mcard .macts{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap}
+.mcard .macts .btn{width:auto;margin:0}
+/* le toast peut porter un bouton « Annuler » (suppression rattrapable) */
+.toast .tann{background:var(--accent-soft);border:none;color:var(--accent-ink);font:inherit;font-weight:800;font-size:13px;
+  padding:6px 13px;border-radius:999px;cursor:pointer;margin-left:10px;pointer-events:auto}
+.toast.avecbtn{pointer-events:auto}
+/* nom de banque : sa couleur est posée en variable pour pouvoir l'éclaircir la nuit (sinon le bleu LCL se perd sur le fond sombre) */
+.bq{color:var(--bqc,inherit)}
+html[data-theme="dark"] .bq{color:color-mix(in srgb,var(--bqc,currentColor) 52%,#fff)}
+@media(prefers-color-scheme:dark){ html:not([data-theme="light"]) .bq{color:color-mix(in srgb,var(--bqc,currentColor) 52%,#fff)} }
 /* Tiroir-caisse : les billets au fond, les pièces devant, comme une vraie caisse enregistreuse.
    Chaque coupure a son compartiment : rien ne déborde, même sur téléphone. */
 .tiroir-caisse{background:linear-gradient(180deg,var(--mint),var(--surface-2));border:1px solid var(--liseret);
@@ -393,7 +414,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v15 · 23/10</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v17 · 03/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -414,6 +435,7 @@ setTimeout(function(){
 </div>
 <div class="toast" id="toast"></div>
 <input type="file" id="fileInput" accept=".csv,text/csv" class="hide">
+<input type="file" id="jsonInput" accept=".json,application/json" class="hide">
 
 <script>
 /* ===================== DONNÉES DE RÉFÉRENCE ===================== */
@@ -542,7 +564,7 @@ function loadLocal(){
 function load(){ loadLocal(); }
 function saveLocal(){ STORE.set("monbudget4", JSON.stringify(DB)); }
 function save(){ saveLocal(); marquerModifie(); schedulePush(); }
-function resetAll(){ if(!confirm("Réinitialiser toutes les données aux valeurs de départ ? (tes ajouts seront perdus)")) return;
+async function resetAll(){ if(!await demander("Réinitialiser toutes les données aux valeurs de départ ?\nTes ajouts seront perdus.",{oui:"Réinitialiser",danger:true})) return;
   DB={transactions:seedTx(),accounts:defaultAccounts(),categories:defaultCategories(),future:[]}; save(); toast("Réinitialisé"); go("dash"); }
 
 /* ---------- Synchronisation cloud (Supabase) ---------- */
@@ -1262,7 +1284,7 @@ function viewDash(){
     else if(a.type==="courant") tag="compte courant";
     else tag="placement";
     const b=pref("couleurBanque")?banqueDe(a):null;   /* couleur de la banque (LCL, Revolut, SwissBorg…) ; les espèces sont à part */
-    return `<div class="acct" style="${b?`border-left:5px solid ${b.couleur}`:""}"><div class="nm">${a.emoji} ${escH(a.name)}${bqPoint(a)}</div><div class="bal">${v}</div><div class="tagm">${tag}${b?` · <span class="bq" style="color:${b.couleur}">${escH(b.nom)}</span>`:""}</div></div>`;
+    return `<div class="acct" style="${b?`border-left:5px solid ${b.couleur}`:""}"><div class="nm">${a.emoji} ${escH(a.name)}${bqPoint(a)}</div><div class="bal">${v}</div><div class="tagm">${tag}${b?` · <span class="bq" style="--bqc:${b.couleur}">${escH(b.nom)}</span>`:""}</div></div>`;
   }).join("");
   /* total par banque (tous les comptes actifs, même masqués) */
   let parBanque="";
@@ -1346,7 +1368,7 @@ function organiserComptesHTML(){
   const rows=DB.accounts.map((a,i)=>{ const vis=a.active&&a.tdb!==false, b=banqueDe(a);
     return `<div class="orgrow" style="${b?`border-left:4px solid ${b.couleur};padding-left:8px`:""}">
       <div style="flex:1;min-width:0;${vis?"":"opacity:.5"}"><div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.emoji} ${escH(a.name)}${bqPoint(a)}</div>
-        <div class="muted" style="font-size:11px">${typeCompte(a.type)}${b?` · <span style="color:${b.couleur};font-weight:700">${escH(b.nom)}</span>`:""} · ${vis?"affiché":"masqué"}</div></div>
+        <div class="muted" style="font-size:11px">${typeCompte(a.type)}${b?` · <span class="bq" style="--bqc:${b.couleur};font-weight:700">${escH(b.nom)}</span>`:""} · ${vis?"affiché":"masqué"}</div></div>
       <button class="orgbtn" title="Monter" onclick="moveAcct(${i},-1)" ${i===0?"disabled":""}>↑</button>
       <button class="orgbtn" title="Descendre" onclick="moveAcct(${i},1)" ${i===n-1?"disabled":""}>↓</button>
       <button class="orgbtn" title="${vis?"Masquer du tableau de bord":"Afficher sur le tableau de bord"}" onclick="toggleTdb(${i})">${vis?"👁️":"🚫"}</button>
@@ -1382,16 +1404,16 @@ function usagesCompte(id){
   n+=((DB.paye&&DB.paye.lines)||[]).filter(l=>l.acct===id).length;
   return n;
 }
-function delAcct(i){
+async function delAcct(i){
   const a=DB.accounts[i]; if(!a) return;
   if(a.id==="cc"){ toast("Le compte courant principal sert de base à tous les calculs : on peut le renommer (Réglages), pas le supprimer."); return; }
   const n=usagesCompte(a.id);
   if(n){   /* effacer un compte qui a servi fausserait les soldes : ses opérations retomberaient sur le compte courant */
-    if(confirm(`« ${acctTxt(a)} » a déjà servi (${n} opération${n>1?"s":""} ou paiement${n>1?"s":""}).\nLe supprimer fausserait tes soldes.\n\nOK = le masquer du tableau de bord à la place (il reste utilisable dans la saisie et compté dans ton patrimoine).`)){
+    if(await demander(`« ${acctTxt(a)} » a déjà servi (${n} opération${n>1?"s":""} ou paiement${n>1?"s":""}).\nLe supprimer fausserait tes soldes.\n\nOK = le masquer du tableau de bord à la place (il reste utilisable dans la saisie et compté dans ton patrimoine).`)){
       a.tdb=false; save(); render(); toast(acctTxt(a)+" masqué 🚫"); }
     return; }
   const b=computeBalances()[a.id]||0;
-  if(!confirm(`Supprimer « ${acctTxt(a)} » ?${b?`\nIl affiche encore ${eur(b)}, qui sortira de ton patrimoine.`:""}`)) return;
+  if(!await demander(`Supprimer « ${acctTxt(a)} » ?${b?`\nIl affiche encore ${eur(b)}, qui sortira de ton patrimoine.`:""}`,{oui:"Supprimer",danger:true})) return;
   DB.accounts.splice(i,1); save(); render(); toast("Compte supprimé 🗑️");
 }
 function ajouterCompte(){
@@ -1576,10 +1598,10 @@ function rembNouvelleLigne(){ const v=id=>{ const el=document.getElementById(id)
   UI.edit={date:todayISO(), note:"", categorie:v("fCat"), sousCategorie:v("fSub")==="__new__"?"":v("fSub"), compte:v("fCompte")};   /* moyen : celui d'une entrée par défaut */
   UI.type="ent"; render(); window.scrollTo(0,0); toast("↩️ Nouvelle ligne : ta dépense reste telle quelle"); }
 /* « ➕ Nouvelle personne… » : on l'ajoute aux sous-catégories de la catégorie Argent */
-function onSubChange(){ const ss=document.getElementById("fSub"), cs=document.getElementById("fCat"); if(!ss||!cs) return;
+async function onSubChange(){ const ss=document.getElementById("fSub"), cs=document.getElementById("fCat"); if(!ss||!cs) return;
   if(ss.value!=="__new__"){ ss.dataset.prev=ss.value; return; }
   const prev=ss.dataset.prev!=null?ss.dataset.prev:((UI.edit&&UI.edit.categorie===cs.value&&UI.edit.sousCategorie)||"");
-  const c=catObj(cs.value), nom=((window.prompt("Nom de la personne :")||"")+"").replace(/,/g," ").replace(/\s+/g," ").trim();   /* pas de virgule : elle sépare les personnes dans Réglages */
+  const c=catObj(cs.value), nom=((await demanderTexte("Nom de la personne :","",{oui:"Ajouter"})||"")+"").replace(/,/g," ").replace(/\s+/g," ").trim();   /* pas de virgule : elle sépare les personnes dans Réglages */
   if(!c||!nom){ ss.innerHTML=subOptions(cs.value,prev,true); return; }   /* annulé : on remet la personne d'avant */
   c.subs=c.subs||[]; const deja=c.subs.find(x=>x.toLowerCase()===nom.toLowerCase());
   if(!deja){ c.subs.push(nom); save(); toast("👤 "+nom+" ajouté(e)"); }
@@ -1824,11 +1846,18 @@ function renderTxList(){
   }).join("");
 }
 function editTx(id){ const t=DB.transactions.find(x=>x.id===id); if(!t) return; UI.retour=UI.tab==="saisie"?UI.retour:UI.tab; UI.edit=t; UI.type=t.type==="transfer"?"tr":(t.montant<0?"dep":"ent"); UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
-function delTx(id){ if(!confirm("Supprimer cette opération ?"))return;
-  const t=DB.transactions.find(x=>x.id===id);
-  const r=ajusterDecomptes(t,null);   /* on remet le décompte de caisse comme avant, ou on propose de recompter */
-  DB.transactions=DB.transactions.filter(x=>x.id!==id); save(); toast("Supprimé");
-  if(r.recompter.length){ UI.recountQueue=r.recompter; UI.afterRecount="tx"; nextRecount(); } else renderTxList(); }
+/* Supprimer une ligne isolée ne pose pas de question : elle part tout de suite et le toast propose « Annuler »
+   pendant quelques secondes (la copie garde son détail espèces, qui est remis tel quel). */
+function delTx(id){
+  const i=DB.transactions.findIndex(x=>x.id===id); if(i<0) return;
+  const copie=JSON.parse(JSON.stringify(DB.transactions[i]));
+  const r=ajusterDecomptes(DB.transactions[i],null);   /* on remet le décompte de caisse comme avant, ou on propose de recompter */
+  DB.transactions.splice(i,1); save();
+  if(r.recompter.length){ toast("Supprimé"); UI.recountQueue=r.recompter; UI.afterRecount="tx"; nextRecount(); return; }
+  toast("Supprimé",{libelle:"↩️ Annuler",fn:()=>{
+    DB.transactions.splice(Math.min(i,DB.transactions.length),0,copie); ajusterDecomptes(null,copie);
+    save(); renderTxList(); toast("Remis ✅"); }});
+  renderTxList(); }
 
 /* ===================== À VENIR (paiements futurs) ===================== */
 let FNEW={type:"dep"};
@@ -1838,28 +1867,57 @@ function addInterval(iso,i,freq){ const p=(iso||todayISO()).split("-").map(Numbe
   else if(freq==="trimestriel") d.setMonth(d.getMonth()+i*3);
   else if(freq==="annuel") d.setFullYear(d.getFullYear()+i);
   return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+/* une échéance dans la liste (à venir ou dans l'historique) */
+function fitemHTML(f,today){
+  const isTr=f.type==="transfer"; const dep=f.montant<0; const late=f.statut==="prévu"&&f.date<today;
+  const fl=(FREQ_LBL[f.freq]||"")+(f.sansFin?" ∞":"");
+  const amtCls=isTr?"":(dep?"neg":"pos"), amtPre=isTr?"⇄ ":(dep?"":"+");
+  const ligne2=isTr?`${acctHTML(f.from)} → ${acctHTML(f.to)}`:`${f.categorie||'—'}${f.sousCategorie?' / '+f.sousCategorie:''} · ${acctHTML(f.compte)}`;
+  return `<div class="fitem"><div class="em" style="font-size:20px">${f.statut==="payé"?"✅":f.statut==="annulé"?"🚫":late?"⏰":"📌"}</div>
+    <div class="fi"><div class="ft1">${f.nom} <span class="amt ${amtCls}">${amtPre}${eur(f.montant)}</span></div>
+      <div class="ft2">${frDate(f.date)} · ${ligne2}${fl?' · '+fl:''}</div></div>
+    <span class="chip ${f.statut==='payé'?'paye':f.statut==='annulé'?'annule':late?'retard':'prevu'}">${late&&f.statut==='prévu'?'en retard':f.statut}</span>
+    <div style="display:flex;gap:4px">
+      ${f.statut==="prévu"?`<button class="del" title="Marquer payé" onclick="futurePay('${f.id}')">✅</button>
+        <button class="del" title="Modifier le montant de cette échéance" onclick="futureEdit('${f.id}')">✏️</button>
+        <button class="del" title="Annuler" onclick="futureCancel('${f.id}')">🚫</button>`
+      :`<button class="del" title="Le remettre dans « À venir »" onclick="futureRevenir('${f.id}')">↩️</button>`}
+      ${isSerie(f)?`<button class="del" title="Modifier ou supprimer TOUTES les échéances de « ${escH(f.nom)} » d'un coup" style="background:var(--accent-soft);border-color:var(--accent)" onclick="serieToggle('${f.id}')">🔁</button>`:""}
+      <button class="del" title="Supprimer cette échéance" onclick="futureDelete('${f.id}')">🗑️</button></div></div>
+    ${UI.serieOpen===f.id?seriePanelHTML(f):""}`;
+}
+/* Une échéance réglée ou annulée quitte « À venir » pour l'historique : la liste du haut ne garde
+   que ce qui reste à payer. L'historique est replié (le pli est retenu par appareil) et rangé par mois,
+   du plus récent au plus ancien. */
 function viewAvenir(){
-  const list=DB.future.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||""));
   const today=todayISO();
-  const items=list.length?list.map(f=>{
-    const isTr=f.type==="transfer"; const dep=f.montant<0; const late=f.statut==="prévu"&&f.date<today;
-    const fl=(FREQ_LBL[f.freq]||"")+(f.sansFin?" ∞":"");
-    const amtCls=isTr?"":(dep?"neg":"pos"), amtPre=isTr?"⇄ ":(dep?"":"+");
-    const ligne2=isTr?`${acctHTML(f.from)} → ${acctHTML(f.to)}`:`${f.categorie||'—'}${f.sousCategorie?' / '+f.sousCategorie:''} · ${acctHTML(f.compte)}`;
-    return `<div class="fitem"><div class="em" style="font-size:20px">${f.statut==="payé"?"✅":f.statut==="annulé"?"🚫":late?"⏰":"📌"}</div>
-      <div class="fi"><div class="ft1">${f.nom} <span class="amt ${amtCls}">${amtPre}${eur(f.montant)}</span></div>
-        <div class="ft2">${frDate(f.date)} · ${ligne2}${fl?' · '+fl:''}</div></div>
-      <span class="chip ${f.statut==='payé'?'paye':f.statut==='annulé'?'annule':late?'retard':'prevu'}">${late&&f.statut==='prévu'?'en retard':f.statut}</span>
-      <div style="display:flex;gap:4px">
-        ${f.statut==="prévu"?`<button class="del" title="Marquer payé" onclick="futurePay('${f.id}')">✅</button>
-          <button class="del" title="Modifier le montant de cette échéance" onclick="futureEdit('${f.id}')">✏️</button>
-          <button class="del" title="Annuler" onclick="futureCancel('${f.id}')">🚫</button>`:""}
-        ${isSerie(f)?`<button class="del" title="Modifier ou supprimer TOUTES les échéances de « ${escH(f.nom)} » d'un coup" style="background:var(--accent-soft);border-color:var(--accent)" onclick="serieToggle('${f.id}')">🔁</button>`:""}
-        <button class="del" title="Supprimer cette échéance" onclick="futureDelete('${f.id}')">🗑️</button></div></div>
-      ${UI.serieOpen===f.id?seriePanelHTML(f):""}`;
-  }).join(""):`<div class="empty">Aucun paiement prévu. Ajoute-en un ci-dessous 👇</div>`;
+  const fini=(f)=>f.statut==="payé"||f.statut==="annulé";
+  const aVenir=DB.future.filter(f=>!fini(f)).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  const passes=DB.future.filter(fini).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const items=aVenir.length?aVenir.map(f=>fitemHTML(f,today)).join("")
+    :`<div class="empty">Rien à payer pour l'instant 🎉${passes.length?"<br>Ce qui est réglé est rangé dans l'historique, juste en dessous.":" Ajoute un paiement ci-dessous 👇"}</div>`;
+  let histo="";
+  if(passes.length){
+    const nbPaye=passes.filter(f=>f.statut==="payé").length;
+    const totPaye=passes.filter(f=>f.statut==="payé"&&f.montant<0).reduce((a,f)=>a+Math.abs(f.montant),0);
+    let corps="", cur="";
+    passes.forEach(f=>{ const am=(f.date||"").slice(0,7);   /* « 2026-10 » : deux octobres d'années différentes restent séparés */
+      if(am!==cur){ cur=am;
+        const m=passes.filter(x=>(x.date||"").slice(0,7)===am&&x.statut==="payé"&&x.montant<0).reduce((a,x)=>a+Math.abs(x.montant),0);
+        corps+=`<div class="mois-sep"><span>${moisMaj(monthOf(f.date))} ${am.slice(0,4)}</span><span>${m?"−"+eur(m):""}</span></div>`; }
+      corps+=fitemHTML(f,today); });
+    const tete=`<span class="tot"><span>🗂️ Historique <span class="muted" style="font-weight:600">— déjà réglés ou annulés</span></span><span>${passes.length} · ${nbPaye?"−"+eur(totPaye):"—"}</span></span>`;
+    histo=`<div class="card">${pli("avenir-histo",tete,corps)}
+      <div class="muted" style="font-size:11.5px;margin-top:8px">↩️ remet une échéance dans « À venir » si elle y a été rangée par erreur. L'opération déjà enregistrée, elle, reste dans Opérations.</div></div>`;
+  }
   const t=FNEW.type;
+  /* Les listes d'abord : on ouvre cette page pour voir ce qu'il reste à payer, pas pour saisir.
+     Le formulaire est en dessous (« Ajoute un paiement ci-dessous 👇 » du message vide y renvoie). */
   return `<div class="pagehead">📅 Paiements à venir</div>
+  <div class="card"><h2>📌 À payer <span class="tag">${aVenir.length}</span></h2>
+    ${aVenir.some(f=>isSerie(f))?`<div class="muted" style="font-size:11.5px;margin-bottom:10px">🔁 Un prélèvement change de montant ? Clique le bouton <b>🔁</b> de n'importe laquelle de ses échéances : tu modifies ou supprimes <b>toutes les suivantes d'un seul coup</b>.</div>`:""}
+    <div>${items}</div></div>
+  ${histo}
   <div class="card"><h2>➕ Prévoir un paiement</h2>
     <div class="seg"><button class="${t==='dep'?'on-dep':''}" onclick="FNEW.type='dep';render()">↓ Dépense</button>
       <button class="${t==='ent'?'on-ent':''}" onclick="FNEW.type='ent';render()">↑ Revenu</button>
@@ -1887,10 +1945,7 @@ function viewAvenir(){
       <div class="field" style="display:flex;align-items:flex-end;padding-bottom:2px"><label style="display:flex;align-items:center;gap:8px;margin:0;cursor:pointer"><input type="checkbox" id="fuSansFin" style="width:auto"> ♾️ Sans fin (renouvelle tout seul)</label></div>
     </div>
     <div class="muted" style="font-size:11.5px;margin:-2px 0 12px">💡 <b>Paiement en plusieurs fois</b> : choisis « Mensuel », mets le montant d'<b>une</b> échéance et le nombre de fois (ex : 3). <b>Abonnement annuel sur 2 ans</b> : « Annuel », 2 échéances.</div>
-    <button class="btn" onclick="addFuture()">✅ Ajouter</button></div>
-  <div class="card"><h2>Mes paiements prévus</h2>
-    ${DB.future.some(f=>isSerie(f))?`<div class="muted" style="font-size:11.5px;margin-bottom:10px">🔁 Un prélèvement change de montant ? Clique le bouton <b>🔁</b> de n'importe laquelle de ses échéances : tu modifies ou supprimes <b>toutes les suivantes d'un seul coup</b>.</div>`:""}
-    <div>${items}</div></div>`;
+    <button class="btn" onclick="addFuture()">✅ Ajouter</button></div>`;
 }
 function addFuture(){
   const nom=document.getElementById("fuNom").value.trim();
@@ -1933,13 +1988,18 @@ function futurePay(id,dest){ const f=DB.future.find(x=>x.id===id); if(!f)return;
     : {id:uid(),date:f.date,montant:f.montant,categorie:f.categorie,sousCategorie:f.sousCategorie||"",compte:f.compte,moyen:f.montant<0?"PL":"VIR",note:f.nom,observation:"",periode:""};
   commit(obj,null,dest);
 }
-function futureEdit(id){ const f=DB.future.find(x=>x.id===id); if(!f)return;
-  const v=prompt("Nouveau montant (€) pour « "+f.nom+" » :", String(Math.abs(f.montant)).replace(".",",")); if(v===null)return;
+async function futureEdit(id){ const f=DB.future.find(x=>x.id===id); if(!f)return;
+  const v=await demanderTexte("Nouveau montant (€) pour « "+f.nom+" » :", String(Math.abs(f.montant)).replace(".",","),{mode:"decimal",oui:"Enregistrer"}); if(v===null)return;
   const m=parseFloat(String(v).replace(",",".")); if(!m||m<=0){toast("Montant invalide");return;}
   f.montant=(f.montant<0?-1:1)*Math.abs(m); save(); render(); toast("Montant mis à jour ✅");
 }
+/* ↩️ : une échéance rangée par erreur dans l'historique revient dans « À payer » */
+function futureRevenir(id){ const f=DB.future.find(x=>x.id===id); if(!f)return;
+  f.statut="prévu"; save(); render(); toast("Remis dans « À payer » ↩️"); }
 function futureCancel(id){ const f=DB.future.find(x=>x.id===id); if(f){f.statut="annulé"; save(); render();} }
-function futureDelete(id){ if(!confirm("Supprimer ce paiement prévu ?"))return; DB.future=DB.future.filter(x=>x.id!==id); save(); render(); }
+function futureDelete(id){ const i=DB.future.findIndex(x=>x.id===id); if(i<0)return;
+  const copie=DB.future[i]; DB.future.splice(i,1); save(); render();
+  toast("Paiement supprimé",{libelle:"↩️ Annuler",fn:()=>{ DB.future.splice(Math.min(i,DB.future.length),0,copie); save(); render(); toast("Remis ✅"); }}); }
 
 /* ---------- Agir sur toute une série (un prélèvement qui revient, un abonnement ♾️) ---------- */
 /* Toutes les échéances du même prélèvement : soit la série créée d'un coup (serieId),
@@ -1953,19 +2013,19 @@ function serieOf(f){
 function serieSuivantes(f){ return serieOf(f).filter(x=>x.statut==="prévu"&&(x.date||"")>=(f.date||"")); }
 function isSerie(f){ return serieOf(f).length>1; }
 function serieToggle(id){ UI.serieOpen=(UI.serieOpen===id?null:id); render(); }
-function serieMontant(id){
+async function serieMontant(id){
   const f=DB.future.find(x=>x.id===id); if(!f)return;
   const cible=serieSuivantes(f); if(!cible.length){ toast("Aucune échéance à venir"); return; }
-  const v=prompt(`Nouveau montant (€) pour « ${f.nom} » — appliqué aux ${cible.length} échéances à venir :`, String(Math.abs(f.montant)).replace(".",","));
+  const v=await demanderTexte(`Nouveau montant (€) pour « ${f.nom} »\nAppliqué aux ${cible.length} échéances à venir.`, String(Math.abs(f.montant)).replace(".",","),{mode:"decimal",oui:"Enregistrer"});
   if(v===null)return;
   const m=parseFloat(String(v).replace(",",".")); if(!m||m<=0){toast("Montant invalide");return;}
   cible.forEach(x=>{ x.montant=(x.montant<0?-1:1)*Math.abs(m); });
   UI.serieOpen=null; save(); render(); toast(cible.length+" échéance(s) à "+eur(Math.abs(m))+" ✅");
 }
-function serieDate(id){
+async function serieDate(id){
   const f=DB.future.find(x=>x.id===id); if(!f)return;
   const cible=serieSuivantes(f); if(!cible.length){ toast("Aucune échéance à venir"); return; }
-  const v=prompt(`Nouveau jour du mois pour « ${f.nom} » (1 à 31) — décale les ${cible.length} échéances à venir :`, String(Number((f.date||"").slice(8,10))||1));
+  const v=await demanderTexte(`Nouveau jour du mois pour « ${f.nom} » (1 à 31)\nDécale les ${cible.length} échéances à venir.`, String(Number((f.date||"").slice(8,10))||1),{mode:"numeric",oui:"Enregistrer"});
   if(v===null)return;
   const j=Math.max(1,Math.min(31,parseInt(v)||0)); if(!j){toast("Jour invalide");return;}
   cible.forEach(x=>{ const p=(x.date||"").split("-"); if(p.length!==3)return;
@@ -1973,18 +2033,18 @@ function serieDate(id){
     x.date=p[0]+"-"+p[1]+"-"+String(Math.min(j,dim)).padStart(2,"0"); });
   UI.serieOpen=null; save(); render(); toast("Échéances décalées au "+j+" ✅");
 }
-function serieStop(id){
+async function serieStop(id){
   const f=DB.future.find(x=>x.id===id); if(!f)return;
   const cible=serieSuivantes(f); if(!cible.length){ toast("Aucune échéance à venir"); return; }
-  if(!confirm(`Supprimer les ${cible.length} échéances à venir de « ${f.nom} » ?\n\nCe qui est déjà payé est conservé.${f.sansFin?"\nLe renouvellement automatique ♾️ s'arrête.":""}`))return;
+  if(!await demander(`Supprimer les ${cible.length} échéances à venir de « ${f.nom} » ?\n\nCe qui est déjà payé est conservé.${f.sansFin?"\nLe renouvellement automatique ♾️ s'arrête.":""}`,{oui:"Supprimer",danger:true}))return;
   const ids=new Set(cible.map(x=>x.id));
   DB.future=DB.future.filter(x=>!ids.has(x.id));
   UI.serieOpen=null; save(); render(); toast(cible.length+" échéance(s) supprimée(s) 🗑️");
 }
-function serieTout(id){
+async function serieTout(id){
   const f=DB.future.find(x=>x.id===id); if(!f)return;
   const tout=serieOf(f);
-  if(!confirm(`Supprimer TOUTE la série « ${f.nom} » (${tout.length} échéances, y compris celles déjà payées ou annulées) ?\n\nTes opérations déjà enregistrées ne sont pas touchées.`))return;
+  if(!await demander(`Supprimer TOUTE la série « ${f.nom} » (${tout.length} échéances, y compris celles déjà payées ou annulées) ?\n\nTes opérations déjà enregistrées ne sont pas touchées.`,{oui:"Tout supprimer",danger:true}))return;
   const ids=new Set(tout.map(x=>x.id));
   DB.future=DB.future.filter(x=>!ids.has(x.id));
   UI.serieOpen=null; save(); render(); toast("Série supprimée 🗑️");
@@ -2304,7 +2364,7 @@ function logCryptoValue(pid){ const p=DB.cryptoTrack.find(x=>x.id===pid); if(!p)
   p.history=(p.history||[]).filter(e=>e.date!==date); p.history.push({date,value:Math.round(v*100)/100});
   save(); render(); toast("Valeur enregistrée ✅"); }
 function delCryptoEntry(pid,date){ const p=DB.cryptoTrack.find(x=>x.id===pid); if(!p)return; p.history=p.history.filter(e=>e.date!==date); save(); render(); }
-function delCryptoPlatform(pid){ if(!confirm("Supprimer cette plateforme et tout son historique ?"))return; DB.cryptoTrack=DB.cryptoTrack.filter(x=>x.id!==pid); save(); render(); }
+async function delCryptoPlatform(pid){ if(!await demander("Supprimer cette plateforme et tout son historique ?",{oui:"Supprimer",danger:true}))return; DB.cryptoTrack=DB.cryptoTrack.filter(x=>x.id!==pid); save(); render(); }
 
 /* ===================== BUDGET (paye = à dépenser · soutiens : portefeuille, puis caisse+Livret A) ===================== */
 function soutienReel(){ const b=computeBalances(); return {
@@ -2778,9 +2838,11 @@ function saveObjectif(){ const nom=document.getElementById("oNom").value.trim();
   const obj={id:eid||uid(),nom,emoji:document.getElementById("oEmoji").value.trim()||"🎯",cible,actuel:parseFloat(document.getElementById("oActuel").value)||0,echeance:document.getElementById("oEcheance").value||"",createdAt:eid?(UI.objEdit.createdAt||todayISO()):todayISO()};
   if(eid){const i=DB.objectifs.findIndex(x=>x.id===eid); if(i>=0)DB.objectifs[i]=obj;} else DB.objectifs.push(obj);
   UI.objEdit=null; save(); toast("Projet enregistré ✅"); render(); }
-function objAdd(id){ const o=(DB.objectifs||[]).find(x=>x.id===id); if(!o)return; const v=prompt("Montant à ajouter à « "+o.nom+" » (€) :",""); if(v==null)return; const n=parseFloat(String(v).replace(",",".")); if(isNaN(n)){toast("Montant invalide");return;} o.actuel=Math.max(0,(o.actuel||0)+n); save(); toast(eur0(n)+" ajoutés"); render(); }
+async function objAdd(id){ const o=(DB.objectifs||[]).find(x=>x.id===id); if(!o)return; const v=await demanderTexte("Montant à ajouter à « "+o.nom+" » (€) :","",{mode:"decimal",oui:"Ajouter"}); if(v==null)return; const n=parseFloat(String(v).replace(",",".")); if(isNaN(n)){toast("Montant invalide");return;} o.actuel=Math.max(0,(o.actuel||0)+n); save(); toast(eur0(n)+" ajoutés"); render(); }
 function objEdit(id){ UI.objEdit=(DB.objectifs||[]).find(x=>x.id===id); render(); window.scrollTo(0,0); }
-function delObjectif(id){ const o=(DB.objectifs||[]).find(x=>x.id===id); if(!o)return; if(!confirm("Supprimer le projet « "+o.nom+" » ?"))return; DB.objectifs=DB.objectifs.filter(x=>x.id!==id); save(); render(); }
+function delObjectif(id){ const i=(DB.objectifs||[]).findIndex(x=>x.id===id); if(i<0)return;
+  const copie=DB.objectifs[i]; DB.objectifs.splice(i,1); save(); render();
+  toast("Projet supprimé",{libelle:"↩️ Annuler",fn:()=>{ DB.objectifs.splice(Math.min(i,DB.objectifs.length),0,copie); save(); render(); toast("Remis ✅"); }}); }
 
 /* ===================== ASSISTANT IA ===================== */
 function fluxBar(fl){
@@ -3396,7 +3458,9 @@ function saveHoraire(){
   UI.horEdit=null; UI.horPause=false; save(); toast(fmtH(hoursOf(obj))+" enregistré ✅"); render();
 }
 function horEdit(id){ UI.horEdit=(DB.horaires||[]).find(x=>x.id===id); UI.horPause=!!(UI.horEdit&&UI.horEdit.pause>0); versFormHoraire(); }
-function delHoraire(id){ if(!confirm("Supprimer cette journée ?"))return; DB.horaires=DB.horaires.filter(x=>x.id!==id); save(); render(); }
+function delHoraire(id){ const i=(DB.horaires||[]).findIndex(x=>x.id===id); if(i<0)return;
+  const copie=DB.horaires[i]; DB.horaires.splice(i,1); save(); render();
+  toast("Journée supprimée",{libelle:"↩️ Annuler",fn:()=>{ DB.horaires.splice(Math.min(i,DB.horaires.length),0,copie); save(); render(); toast("Remise ✅"); }}); }
 function setPrevu(v){ const n=parseFloat(String(v).replace(",",".")); if(isNaN(n))return; DB.heuresPrevuesJour=n; save(); render(); }
 function saveVac(){
   let du=document.getElementById("vDu").value, au=document.getElementById("vAu").value;
@@ -3408,7 +3472,9 @@ function saveVac(){
   const nb=vacDays(obj); UI.vacEdit=null; save(); toast(nb+" jour"+(nb>1?"s":"")+" ouvrable"+(nb>1?"s":"")+" décompté"+(nb>1?"s":"")+" 🏖️"); render();
 }
 function vacEdit(id){ UI.vacEdit=(DB.vacances||[]).find(x=>x.id===id); render(); window.scrollTo(0,0); }
-function delVac(id){ if(!confirm("Supprimer cette période de vacances ?"))return; DB.vacances=DB.vacances.filter(x=>x.id!==id); save(); render(); }
+function delVac(id){ const i=(DB.vacances||[]).findIndex(x=>x.id===id); if(i<0)return;
+  const copie=DB.vacances[i]; DB.vacances.splice(i,1); save(); render();
+  toast("Vacances supprimées",{libelle:"↩️ Annuler",fn:()=>{ DB.vacances.splice(Math.min(i,DB.vacances.length),0,copie); save(); render(); toast("Remises ✅"); }}); }
 function setCongesDepart(v){ DB.congesDepart=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
 function setCongesDepuis(v){ if(v){ DB.congesDepuis=v; save(); render(); } }
 function setCongesTaux(v){ DB.congesTaux=Math.max(0,parseFloat(String(v).replace(",","."))||0); save(); render(); }
@@ -3498,10 +3564,15 @@ function viewReglages(){
         ? `<div class="muted" style="font-size:13px;margin-bottom:10px">Mode hors-ligne (non connectée). Connecte-toi pour synchroniser.</div><button class="btn sm" onclick="showLogin()">🔑 Se connecter</button>`
         : `<div class="muted" style="font-size:13px">Synchro cloud indisponible (pas de connexion Internet). L'app fonctionne en local.</div>` }
   </div>
-  <div class="card"><h2>💾 Données</h2>
+  <div class="card"><h2>💾 Mes données</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px"><b>Sauvegarder tout</b> télécharge un fichier qui contient <b>absolument tout</b> : comptes et soldes, opérations, enveloppes et limites, niveaux, caisse, horaires, congés, projets, paiements à venir, libellés appris. Garde-le quelque part (mail, iCloud) : si ton téléphone efface l'app ou si la synchro a un souci, c'est ce fichier qui te sauve. Le CSV, lui, ne contient que les opérations.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sm" style="width:auto" onclick="sauvegardeJSON()">⬇️ Sauvegarder tout</button>
+      <button class="btn ghost sm" onclick="document.getElementById('jsonInput').click()">⬆️ Restaurer une sauvegarde</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
       <button class="btn ghost sm" onclick="document.getElementById('fileInput').click()">⬆️ Importer un CSV</button>
-      <button class="btn ghost sm" onclick="exportCSV()">⬇️ Exporter en CSV</button>
+      <button class="btn ghost sm" onclick="exportCSV()">⬇️ Exporter en CSV (opérations)</button>
       <button class="btn danger sm" onclick="resetAll()">♻️ Réinitialiser</button>
     </div></div>`;
 }
@@ -3509,8 +3580,8 @@ function setAcc(i,f,v){ const a=DB.accounts[i]; if(!a)return; a[f]= f==="opening
 /* ---------- Banques (couleur des comptes sur le tableau de bord) ---------- */
 function banqueOptions(sel){ return `<option value="" ${!sel?'selected':''}>— à part —</option>`+(DB.banques||[]).map(b=>`<option value="${b.id}" ${sel===b.id?'selected':''}>${escH(b.nom)}</option>`).join(""); }
 function setBanque(i,f,v){ const b=DB.banques[i]; if(!b)return; if(f==="nom") b.nom=v.trim()||b.nom; else b[f]=v; save(); render(); }
-function delBanque(i){ const b=DB.banques[i]; if(!b)return; const n=DB.accounts.filter(a=>a.banque===b.id).length;
-  if(!confirm(`Supprimer « ${b.nom} » ?${n?`\n${n} compte${n>1?"s":""} se retrouver${n>1?"ont":"a"} « à part » (tu pourras choisir une autre banque dans Comptes).`:""}`)) return;
+async function delBanque(i){ const b=DB.banques[i]; if(!b)return; const n=DB.accounts.filter(a=>a.banque===b.id).length;
+  if(!await demander(`Supprimer « ${b.nom} » ?${n?`\n${n} compte${n>1?"s":""} se retrouver${n>1?"ont":"a"} « à part » (tu pourras choisir une autre banque dans Comptes).`:""}`,{oui:"Supprimer",danger:true})) return;
   DB.accounts.forEach(a=>{ if(a.banque===b.id) a.banque=""; }); DB.banques.splice(i,1); save(); render(); }
 function addBanque(){ const nom=(document.getElementById("nbNom").value||"").trim(); if(!nom){toast("Donne un nom à la banque");return;}
   if((DB.banques||[]).some(b=>b.nom.toLowerCase()===nom.toLowerCase())){toast("Cette banque existe déjà 😉");return;}
@@ -3533,27 +3604,27 @@ function setCat(i,f,v){ const c=DB.categories[i]; if(!c)return;
     if(catObj(nn)){ toast("« "+nn+" » existe déjà : pour réunir les deux, utilise 🔀"); render(); return; }   /* deux catégories du même nom : la 2e serait ignorée */
     renommerRefs(old,nn); c.name=nn; save(); render(); return; }
   c[f]= f==="active"?!!v:v; save(); if(f==="active"||f==="emoji")render(); }
-function setCatSubs(i,v){ const c=DB.categories[i]; if(!c) return;
+async function setCatSubs(i,v){ const c=DB.categories[i]; if(!c) return;
   const nv=[], vus={}; v.split(",").map(s=>s.trim()).filter(Boolean).forEach(s=>{ const k=s.toLowerCase(); if(!vus[k]){ vus[k]=1; nv.push(s); } });   /* sans doublon */
   const av=(c.subs||[]).slice(), partis=av.filter(s=>nv.indexOf(s)<0), venus=nv.filter(s=>av.indexOf(s)<0);
   /* un seul nom changé, à la même place : c'est un renommage, tout ce qui le cite peut suivre */
-  if(partis.length===1&&venus.length===1&&av.indexOf(partis[0])===nv.indexOf(venus[0])) renommerSub(c,partis[0],venus[0]);
+  if(partis.length===1&&venus.length===1&&av.indexOf(partis[0])===nv.indexOf(venus[0])) await renommerSub(c,partis[0],venus[0]);
   c.subs=nv; save(); render(); }
-function renommerSub(c,old,nn){ const n=DB.transactions.filter(t=>t.categorie===c.name&&t.sousCategorie===old).length+(DB.future||[]).filter(f=>f.categorie===c.name&&f.sousCategorie===old).length;
-  if(!confirm(`Renommer « ${old} » en « ${nn} » dans « ${c.name} » ?`+(n?`\n${n} opération${n>1?"s":""} ou paiement${n>1?"s":""} à venir suivr${n>1?"ont":"a"}, avec sa limite et son niveau.`:`\nSa limite et son niveau suivront.`)+`\n\nAnnuler = « ${old} » disparaît simplement de la liste.`)) return;
+async function renommerSub(c,old,nn){ const n=DB.transactions.filter(t=>t.categorie===c.name&&t.sousCategorie===old).length+(DB.future||[]).filter(f=>f.categorie===c.name&&f.sousCategorie===old).length;
+  if(!await demander(`Renommer « ${old} » en « ${nn} » dans « ${c.name} » ?`+(n?`\n${n} opération${n>1?"s":""} ou paiement${n>1?"s":""} à venir suivr${n>1?"ont":"a"}, avec sa limite et son niveau.`:`\nSa limite et son niveau suivront.`)+`\n\nAnnuler = « ${old} » disparaît simplement de la liste.`,{oui:"Tout renommer"})) return;
   DB.transactions.concat(DB.future||[]).forEach(t=>{ if(t.categorie===c.name&&t.sousCategorie===old) t.sousCategorie=nn; });
   (DB.libelles||[]).forEach(l=>{ if(l.cat===c.name&&l.sub===old) l.sub=nn; });
   Object.values(DB.trained||{}).forEach(x=>{ if(Array.isArray(x)&&x[0]===c.name&&x[1]===old) x[1]=nn; });
   ["subsBudget","subsNiveau","subsBesoin"].forEach(f=>{ const o=c[f]; if(o&&old in o){ o[nn]=o[old]; delete o[old]; } }); }
 function setCatBesoin(i,v){ setNiveau(i,"",v?"essentiel":"plaisir"); }
 function usagesCat(name){ return DB.transactions.filter(t=>t.categorie===name).length+(DB.future||[]).filter(f=>f.categorie===name).length; }
-function delCat(i){ const c=DB.categories[i]; if(!c) return; UI.fusionCat=null;
+async function delCat(i){ const c=DB.categories[i]; if(!c) return; UI.fusionCat=null;
   const n=usagesCat(c.name);
   if(n){   /* supprimée, ses opérations changeraient de nature (l'argent redeviendrait une dépense, la paye…) */
-    if(confirm(`« ${c.name} » a déjà servi (${n} opération${n>1?"s":""} ou paiement${n>1?"s":""} à venir).\nLa supprimer changerait la façon dont elles comptent.\nPour la réunir avec une autre, utilise plutôt 🔀.\n\nOK = la masquer à la place (elle disparaît des listes, ses opérations comptent pareil).`)){
+    if(await demander(`« ${c.name} » a déjà servi (${n} opération${n>1?"s":""} ou paiement${n>1?"s":""} à venir).\nLa supprimer changerait la façon dont elles comptent.\nPour la réunir avec une autre, utilise plutôt 🔀.\n\nOK = la masquer à la place (elle disparaît des listes, ses opérations comptent pareil).`)){
       c.active=false; save(); toast("« "+c.name+" » masquée 🚫"); }
     render(); return; }
-  if(!confirm("Supprimer la catégorie « "+c.name+" » ?"))return; DB.categories.splice(i,1); save(); render(); }
+  if(!await demander("Supprimer la catégorie « "+c.name+" » ?",{oui:"Supprimer",danger:true}))return; DB.categories.splice(i,1); save(); render(); }
 function addCat(){ const n=document.getElementById("ncName").value.trim(); if(!n){toast("Donne un nom");return;}
   if(catObj(n)){ toast("Cette catégorie existe déjà 😉"); return; }
   const gs=document.getElementById("ncGenre"); let g=gs&&GENRES[gs.value]?gs.value:"depense";
@@ -3568,17 +3639,17 @@ function setCatGenre(i,g){ const c=DB.categories[i]; if(!c||!GENRES[g]) return; 
   const rep=reporterPaye(c); save(); render();
   toast(GENRES[g].emo+" « "+c.name+" » : "+GENRES[g].lbl+(rep?" · sa limite passe dans « Ma paye » ("+eur0(DB.aDepenser)+")":rendu&&g==="depense"?" · elle retrouve sa limite de "+eur0(c.budget)+"/mois":"")); }
 /* fusionne la catégorie i dans « cible » : opérations, paiements à venir, libellés et apprentissages suivent ; les sous-catégories s'ajoutent */
-function fusionCat(i,cible){ const src=DB.categories[i], dst=catObj(cible); UI.fusionCat=null;
+async function fusionCat(i,cible){ const src=DB.categories[i], dst=catObj(cible); UI.fusionCat=null;
   if(!src||!dst||src===dst){ render(); return; }
   const n=DB.transactions.filter(t=>t.categorie===src.name).length, nf=(DB.future||[]).filter(f=>f.categorie===src.name).length;
   const gs=genreDe(src), gd=genreDe(dst), env=gs==="depense"&&gd==="depense"&&src.budget>0;
   const effet={depense:"comme des dépenses de l'enveloppe ; ses entrées deviendront des remboursements",
     paye:"comme ta paye ; ses dépenses ne compteront plus nulle part",
     argent:"comme de l'argent donné ou rendu, ni revenu ni dépense ; ses sous-catégories deviendront des personnes"}[gd];
-  if(!confirm(`Fusionner « ${src.name} » dans « ${dst.name} » ?\n${n} opération${n>1?"s":""}${nf?` et ${nf} paiement${nf>1?"s":""} à venir`:""} passe${n+nf>1?"nt":""} dans « ${dst.name} », avec leur sous-catégorie.`
+  if(!await demander(`Fusionner « ${src.name} » dans « ${dst.name} » ?\n${n} opération${n>1?"s":""}${nf?` et ${nf} paiement${nf>1?"s":""} à venir`:""} passe${n+nf>1?"nt":""} dans « ${dst.name} », avec leur sous-catégorie.`
     +(gs!==gd?`\n⚠️ « ${src.name} » est ${GENRES[gs].emo} ${GENRES[gs].lbl} et « ${dst.name} » ${GENRES[gd].emo} ${GENRES[gd].lbl} : ses opérations compteront ${effet}.`:"")
     +(env?`\nSa limite de ${eur0(src.budget)}/mois s'ajoute à celle de « ${dst.name} ».`:"")
-    +`\nLa catégorie « ${src.name} » disparaît.`)){ render(); return; }
+    +`\nLa catégorie « ${src.name} » disparaît.`,{oui:"Fusionner"})){ render(); return; }
   const old=src.name; fusionnerDans(src,dst);
   save(); render(); toast("🔀 « "+old+" » fusionnée dans « "+dst.name+" »"); }
 /* le cœur de la fusion, sans question : tout ce qui cite src passe dans dst (sous-catégories comprises), puis src disparaît */
@@ -3618,6 +3689,31 @@ function addLib(){ const el=document.getElementById("nlTxt"); const t=(el?el.val
   DB.libelles.push({txt:t,cat:"",sub:""}); save(); toast("⭐ Libellé ajouté"); render(); }
 
 /* ===================== IMPORT / EXPORT ===================== */
+/* ---------- Sauvegarde complète (tout DB) ----------
+   Le CSV n'emporte que les opérations : comptes, enveloppes, horaires, congés, caisse et projets
+   n'existent sinon que dans le localStorage du téléphone et dans la ligne Supabase. */
+function sauvegardeJSON(){
+  const paquet={app:"mon-budget",format:1,version:(document.querySelector(".ver")||{}).textContent||"",le:new Date().toISOString(),data:DB};
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(paquet)],{type:"application/json"}));
+  a.download="mon-budget-sauvegarde-"+todayISO()+".json"; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  toast("Sauvegarde téléchargée 💾");
+}
+async function restaurerJSON(texte,nomFichier){
+  let paquet; try{ paquet=JSON.parse(texte); }catch(e){ toast("Ce fichier n'est pas une sauvegarde 🤔"); return; }
+  const d=(paquet&&paquet.data)||((paquet&&Array.isArray(paquet.transactions))?paquet:null);
+  if(!d||typeof d!=="object"||!Array.isArray(d.accounts)){ toast("Ce fichier n'est pas une sauvegarde de Mon budget 🤔"); return; }
+  const quand=paquet.le?frDate(String(paquet.le).slice(0,10)):"date inconnue";
+  const nbT=(d.transactions||[]).length, nbC=(d.accounts||[]).length;
+  if(!await demander(`Restaurer la sauvegarde du ${quand} ?\n`
+    +`Elle contient ${nbT} opération${nbT>1?"s":""} et ${nbC} compte${nbC>1?"s":""}.\n\n`
+    +`⚠️ Tout ce qu'il y a dans l'app en ce moment sera remplacé, ici et sur tes autres appareils.`,
+    {oui:"Remplacer par cette sauvegarde",danger:true})) return;
+  DB=d; ensureDefaults(); saveLocal(); marquerModifie(); schedulePush();
+  UI.edit=null; UI.recountQueue=[]; go("dash");
+  toast("Sauvegarde restaurée ✅");
+}
 function exportCSV(){
   const head=["type","date","montant","categorie","sousCategorie","compte","from","to","moyen","note"];
   const rows=DB.transactions.map(t=>head.map(h=>{let v=t[h]; if(h==="date")v=frDate(t.date); if(h==="montant")v=String(t.montant).replace(".",","); v=(v==null?"":String(v)); return `"${v.replace(/"/g,'""')}"`;}).join(";"));
@@ -3648,10 +3744,54 @@ function splitCSV(line,sep){const out=[];let cur="",q=false;for(let i=0;i<line.l
 
 /* ===================== DIVERS / INIT ===================== */
 let toastT;
-function toast(msg){const el=document.getElementById("toast");el.textContent=msg;el.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove("show"),2200);}
+/* toast(msg) : message passager. toast(msg, {libelle, fn}) : message avec un bouton (ex. « Annuler » après une suppression) */
+function toast(msg,action){const el=document.getElementById("toast");
+  if(action){ el.innerHTML=escH(msg)+`<button type="button" class="tann">${escH(action.libelle||"Annuler")}</button>`;
+    el.classList.add("avecbtn");
+    el.querySelector(".tann").onclick=()=>{ el.classList.remove("show","avecbtn"); clearTimeout(toastT); action.fn(); }; }
+  else { el.textContent=msg; el.classList.remove("avecbtn"); }
+  el.classList.add("show");clearTimeout(toastT);
+  toastT=setTimeout(()=>el.classList.remove("show","avecbtn"),action?6500:2200);}
+
+/* ---------- Fenêtres de l'app (remplacent confirm() et prompt() du navigateur) ----------
+   demander(texte) → Promise<booléen> ; demanderTexte(texte, valeur) → Promise<texte|null>.
+   La première ligne du texte sert de titre, le reste de corps : les messages existants se lisent tels quels. */
+let MODALE=null;
+function ouvrirModale(texte,opts){
+  opts=opts||{};
+  if(MODALE) MODALE.ferme(null);
+  const lignes=String(texte).split("\n"), titre=lignes.shift();
+  const corps=lignes.join("\n").trim();
+  const fond=document.createElement("div"); fond.className="mbackdrop";
+  fond.innerHTML=`<div class="mcard" role="dialog" aria-modal="true">
+    <h3>${escH(titre)}</h3>
+    ${corps?`<div class="mtxt">${escH(corps).replace(/\n/g,"<br>")}</div>`:""}
+    ${opts.saisie?`<input class="msaisie" type="${opts.type||"text"}" ${opts.mode?`inputmode="${opts.mode}"`:""} value="${escH(opts.valeur==null?"":String(opts.valeur))}">`:""}
+    <div class="macts">
+      <button type="button" class="btn ghost sm mno">${escH(opts.non||"Annuler")}</button>
+      <button type="button" class="btn sm${opts.danger?" danger":""} moui">${escH(opts.oui||"OK")}</button>
+    </div></div>`;
+  document.body.appendChild(fond);
+  const champ=fond.querySelector(".msaisie");
+  return new Promise(res=>{
+    const ferme=(val)=>{ if(MODALE!==obj) return; MODALE=null; document.removeEventListener("keydown",touche,true); fond.remove(); res(val); };
+    const obj={ferme};
+    const touche=(e)=>{ if(e.key==="Escape"){ e.preventDefault(); ferme(opts.saisie?null:false); }
+      else if(e.key==="Enter"&&(champ||document.activeElement===document.body||document.activeElement.classList.contains("moui"))){ e.preventDefault(); valide(); } };
+    const valide=()=>ferme(opts.saisie?(champ?champ.value:""):true);
+    MODALE=obj;
+    fond.querySelector(".moui").onclick=valide;
+    fond.querySelector(".mno").onclick=()=>ferme(opts.saisie?null:false);
+    fond.onclick=(e)=>{ if(e.target===fond) ferme(opts.saisie?null:false); };
+    document.addEventListener("keydown",touche,true);
+    setTimeout(()=>{ if(champ){ champ.focus(); champ.select(); } else fond.querySelector(".moui").focus(); },30);
+  });
+}
+function demander(texte,opts){ return ouvrirModale(texte,opts||{}); }
+function demanderTexte(texte,valeur,opts){ return ouvrirModale(texte,Object.assign({saisie:true,valeur:valeur},opts||{})); }
 window.go=go;window.setType=setType;window.onCatChange=onCatChange;window.applySugg=applySugg;window.saveTx=saveTx;
 window.renderTxList=renderTxList;window.editTx=editTx;window.delTx=delTx;window.addFuture=addFuture;window.futurePay=futurePay;
-window.futureCancel=futureCancel;window.futureDelete=futureDelete;window.futureEdit=futureEdit;
+window.futureCancel=futureCancel;window.futureRevenir=futureRevenir;window.futureDelete=futureDelete;window.futureEdit=futureEdit;
 window.serieToggle=serieToggle;window.serieMontant=serieMontant;window.serieDate=serieDate;window.serieStop=serieStop;window.serieTout=serieTout;window.setAcc=setAcc;window.calibAcc=calibAcc;window.addAcct=addAcct;window.setCat=setCat;
 window.openCompteur=openCompteur;window.setCatGenre=setCatGenre;window.fusionCat=fusionCat;window.onSubChange=onSubChange;window.catHint=catHint;window.recalcCaisse=recalcCaisse;window.saveCaisse=saveCaisse;window.nextRecount=nextRecount;
 window.makePack=makePack;window.espSync=espSync;window.espCalc=espCalc;window.espToggle=espToggle;window.onCompteChange=onCompteChange;window.espOublie=espOublie;
@@ -3660,7 +3800,7 @@ window.saveHoraire=saveHoraire;window.horEdit=horEdit;window.delHoraire=delHorai
 window.saveVac=saveVac;window.vacEdit=vacEdit;window.delVac=delVac;window.setCongesDepart=setCongesDepart;window.setCongesDepuis=setCongesDepuis;window.setCongesTaux=setCongesTaux;window.setSamediLibre=setSamediLibre;
 window.ouvrirReleve=ouvrirReleve;window.setHorTab=setHorTab;window.orgComptes=orgComptes;window.moveAcct=moveAcct;window.toggleTdb=toggleTdb;window.delAcct=delAcct;window.ajouterCompte=ajouterCompte;window.setReleveMois=setReleveMois;window.setReleveMode=setReleveMode;window.setPeriode=setPeriode;window.resetPeriode=resetPeriode;window.setReleveNom=setReleveNom;window.setReleveEmployeur=setReleveEmployeur;window.imprimerReleve=imprimerReleve;
 window.setContrat=setContrat;window.planMove=planMove;window.planAdd=planAdd;
-window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.resetAll=resetAll;
+window.setCatSubs=setCatSubs;window.setCatBesoin=setCatBesoin;window.delCat=delCat;window.addCat=addCat;window.exportCSV=exportCSV;window.sauvegardeJSON=sauvegardeJSON;window.restaurerJSON=restaurerJSON;window.resetAll=resetAll;
 window.setCatBudget=setCatBudget;window.resetTxFilter=resetTxFilter;window.saveObjectif=saveObjectif;window.objAdd=objAdd;window.objEdit=objEdit;window.delObjectif=delObjectif;window.setSubBesoin=setSubBesoin;
 window.starLib=starLib;window.setLib=setLib;window.delLib=delLib;window.addLib=addLib;
 window.setBanque=setBanque;window.delBanque=delBanque;window.addBanque=addBanque;window.rangerParBanque=rangerParBanque;window.setPref=setPref;
@@ -3728,6 +3868,7 @@ async function boot(){
     applyTheme();
     document.getElementById("btnSettings").onclick=()=>go("reglages");
     document.getElementById("fileInput").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>importCSV(r.result);r.readAsText(f,"utf-8");e.target.value="";};
+    document.getElementById("jsonInput").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>restaurerJSON(r.result,f.name);r.readAsText(f,"utf-8");e.target.value="";};
   }catch(err){
     document.getElementById("main").innerHTML='<div class="card"><h2>⚠️ Erreur</h2><div class="muted" style="white-space:pre-wrap;font-size:12px">'+String(err&&err.stack||err)+'</div></div>';
     console.error(err); return;

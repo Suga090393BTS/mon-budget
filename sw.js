@@ -1,15 +1,16 @@
 /* Service worker — Mon budget (PWA)
    Stratégie : "réseau d'abord" pour la page (toujours la dernière version quand il y a du réseau),
    bascule sur le cache hors-ligne. Les autres fichiers de l'app sont mis en cache. */
-const CACHE = "monbudget-v3";   /* v3 : nouveau design (palette Ma Voix) */
+const CACHE = "monbudget-v4";   /* v4 : nouveau logo (pièce € turquoise) */
 const ASSETS = [
   "./",
   "./index.html",
   "./calculatrice.html",
   "./manifest.webmanifest",
-  "./icon-192.png",
-  "./icon-512.png",
-  "./apple-touch-icon.png"
+  "./icon-192.png?v=2",
+  "./icon-512.png?v=2",
+  "./icon-maskable-512.png?v=2",
+  "./apple-touch-icon.png?v=2"
 ];
 
 self.addEventListener("install", e => {
