@@ -414,7 +414,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v17 · 03/11</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v18 · 03/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -665,27 +665,55 @@ function recevoir(row){
   if(marque&&memes(apres,eR)) effacerModifie(marque);   /* rien d'ici que le cloud n'ait déjà */
   return !memes(apres,avant);
 }
-/* après une fusion en arrière-plan : on redessine, sauf pendant une saisie (on ne vide pas le formulaire en cours) */
+/* un champ de la page a changé depuis le dernier dessin : peut-être une saisie pas encore enregistrée (journée d'Horaires, comptage d'Espèces…) */
+function champChange(m){ return [...m.querySelectorAll("input,select,textarea")].some(c=>
+  c.tagName==="SELECT"? c.options.length&&c.selectedIndex!==Math.max(0,[...c.options].findIndex(o=>o.defaultSelected))
+  : /^(checkbox|radio)$/.test(c.type)? c.checked!==c.defaultChecked : c.value!==c.defaultValue); }
+/* après une fusion en arrière-plan : on redessine, sauf pendant une saisie (on ne vide pas le formulaire en cours) ;
+   sur les Opérations, la liste seule se redessine : elle ne touche ni aux filtres ni à ce qu'on y tape */
 function rafraichir(){ const f=document.activeElement, m=document.getElementById("main");
-  if(UI.tab==="saisie"||(f&&m&&m.contains(f)&&/^(INPUT|SELECT|TEXTAREA)$/.test(f.tagName))){ updateTop(); return; }
+  if(UI.tab==="saisie"||(f&&m&&m.contains(f)&&/^(INPUT|SELECT|TEXTAREA)$/.test(f.tagName))||(m&&champChange(m))){ updateTop(); if(UI.tab==="tx") renderTxList(); return; }
   render(); }
 
-/* Lire le cloud (démarrage, connexion). Jamais en même temps qu'un envoi : une réponse partie avant l'envoi
-   remplacerait sinon les données d'ici par une version plus ancienne. */
+/* Lire le cloud (démarrage, connexion, retour au premier plan). Jamais en même temps qu'un envoi : une réponse
+   partie avant l'envoi remplacerait sinon les données d'ici par une version plus ancienne. Renvoie vrai si DB a changé. */
 function pullCloud(){
-  if(!sb||!SB_USER) return Promise.resolve();
+  if(!sb||!SB_USER) return Promise.resolve(false);
   if(!pullP) pullP=(async()=>{
+    let change=false;
     try{ if(pushP) await pushP;
       const {data,error}=await sb.from("app_state").select("data,updated_at").eq("user_id",SB_USER.id).maybeSingle();
       if(error) throw error;
-      if(data&&data.data&&Array.isArray(data.data.transactions)) recevoir(data);
+      if(data&&data.data&&Array.isArray(data.data.transactions)) change=recevoir(data);
       else { ensureDefaults(); retenir(null,{}); marquerModifie(); }   /* cloud vide : on y met les données d'ici */
       syncState="cloud";
       if(modifie()) pushCloud();   /* des modifications d'ici attendaient : on les envoie (sans bloquer l'affichage) */
     }catch(e){ console.error("pullCloud",e); syncState="error"; }
     finally{ pullP=null; }
+    return change;
   })();
   return pullP;
+}
+/* Retour au premier plan (le Mac resté ouvert depuis le matin) : on relit seulement updated_at, et toute la version
+   seulement si un autre appareil a écrit depuis notre dernier passage. visibilitychange, focus et online arrivent
+   souvent ensemble : une seule relecture à la fois, pas plus d'une toutes les 3 s (sauf après un échec).
+   Rien tant qu'une fenêtre pose une question : DB ne doit pas changer sous la réponse (suppression par position…). */
+let relireP=null, reluA=0;
+function relireCloud(){
+  if(!sb||!SB_USER||relireP||pullP||MODALE||document.visibilityState==="hidden"||Date.now()-reluA<3000) return;
+  reluA=Date.now();
+  relireP=(async()=>{
+    try{ if(pushP) await pushP;   /* un envoi en cours relit déjà le cloud : on passe après lui */
+      if(!SB_USER) return;
+      const lu=await avecDelai(sb.from("app_state").select("updated_at").eq("user_id",SB_USER.id).maybeSingle(),8000);
+      if(!lu) throw new Error("pas de réponse en 8 s");
+      if(lu.error) throw lu.error;
+      if(!SB_USER||(lu.data? lu.data.updated_at : null)===syncAt()) return;   /* rien de neuf : pas un mot */
+      if(await pullCloud()){ rafraichir(); toast("🔄 Mis à jour avec ton autre appareil"); }
+      else updateTop();
+    }catch(e){ reluA=0; console.warn("☁️ Relecture du cloud impossible pour l'instant :",e&&e.message||e); }   /* hors-ligne : on réessaiera */
+    finally{ relireP=null; }
+  })();
 }
 /* Envoie DB au cloud sans jamais écraser ce qu'un autre appareil y a mis entre-temps. Un seul envoi à la fois. */
 function pushCloud(){
@@ -730,11 +758,13 @@ async function envoyer(){
   throw new Error("le cloud change sans arrêt : on réessaiera");
 }
 function schedulePush(){ if(!sb||!SB_USER) return; syncState="saving"; updateTop(); clearTimeout(pushT); pushT=setTimeout(pushCloud,1200); }
-/* envoyer tout de suite quand l'app passe en arrière-plan ou se ferme, et réessayer quand le réseau revient */
+/* envoyer tout de suite quand l'app passe en arrière-plan ou se ferme, relire le cloud quand elle revient au premier plan,
+   et réessayer les deux quand le réseau revient (réveil du Mac : focus arrive souvent avant le réseau) */
 function envoyerSiBesoin(){ if(sb&&SB_USER&&modifie()) pushCloud(); }
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") envoyerSiBesoin(); });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") envoyerSiBesoin(); else relireCloud(); });
+window.addEventListener("focus",relireCloud);
 window.addEventListener("pagehide",envoyerSiBesoin);
-window.addEventListener("online",envoyerSiBesoin);
+window.addEventListener("online",()=>{ envoyerSiBesoin(); relireCloud(); });
 
 /* ---------- Écran de connexion ---------- */
 function showLogin(){ const o=document.getElementById("authOverlay"); if(!o)return; o.classList.add("show");
