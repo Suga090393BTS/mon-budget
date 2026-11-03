@@ -414,7 +414,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v18 · 03/11</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v19 · 03/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -571,7 +571,10 @@ async function resetAll(){ if(!await demander("Réinitialiser toutes les donnée
 const SB_URL="https://efyxufdtrgcgzpfhrmwh.supabase.co";
 const SB_KEY="sb_publishable_Bc6FUEQBIsF7ciMiREHJVw_N99uh1jp";
 let sb=null, SB_USER=null, AUTH={step:"email",email:""}, pushT=null, syncState="local";
-function initSb(){ try{ if(window.supabase&&SB_URL&&SB_KEY) sb=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"mb-auth"}}); }catch(e){ sb=null; } }
+function initSb(){ try{ if(window.supabase&&SB_URL&&SB_KEY) sb=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"mb-auth"},global:{fetch:requeteBornee}}); }catch(e){ sb=null; } }
+/* une requête restée suspendue (téléphone mis en veille pendant l'envoi) ne doit jamais bloquer la synchro jusqu'à la fermeture de l'app : abandon au bout de 30 s */
+function requeteBornee(url,opts){ const c=new AbortController(), t=setTimeout(()=>c.abort(),30000);
+  return fetch(url,Object.assign({},opts,{signal:c.signal})).finally(()=>clearTimeout(t)); }
 function updateTop(){ const el=document.getElementById("topSub"); if(!el)return; const bal=computeBalances();
   const dispo=eur0(disponible(bal));
   const tag = !sb? " · 🔒 hors-ligne" : !SB_USER? " · 🔒 hors-ligne" : syncState==="saving"? " · ⏳ sync…" : syncState==="error"? " · ⚠️ sync" : " · ☁️ synchronisé";
@@ -694,13 +697,15 @@ function pullCloud(){
   })();
   return pullP;
 }
-/* Retour au premier plan (le Mac resté ouvert depuis le matin) : on relit seulement updated_at, et toute la version
+/* Relire le cloud : au retour au premier plan (le Mac resté ouvert depuis le matin) et toutes les 20 s tant que la page
+   est affichée (un téléphone resté allumé ne reçoit aucun événement). On lit seulement updated_at, et toute la version
    seulement si un autre appareil a écrit depuis notre dernier passage. visibilitychange, focus et online arrivent
    souvent ensemble : une seule relecture à la fois, pas plus d'une toutes les 3 s (sauf après un échec).
+   Au réveil du téléphone, la première requête peut échouer : jusqu'à 3 nouveaux essais rapprochés.
    Rien tant qu'une fenêtre pose une question : DB ne doit pas changer sous la réponse (suppression par position…). */
-let relireP=null, reluA=0;
+let relireP=null, reluA=0, relEchecs=0;
 function relireCloud(){
-  if(!sb||!SB_USER||relireP||pullP||MODALE||document.visibilityState==="hidden"||Date.now()-reluA<3000) return;
+  if(!sb||!SB_USER||relireP||pullP||MODALE||document.visibilityState==="hidden"||navigator.onLine===false||Date.now()-reluA<3000) return;
   reluA=Date.now();
   relireP=(async()=>{
     try{ if(pushP) await pushP;   /* un envoi en cours relit déjà le cloud : on passe après lui */
@@ -708,10 +713,16 @@ function relireCloud(){
       const lu=await avecDelai(sb.from("app_state").select("updated_at").eq("user_id",SB_USER.id).maybeSingle(),8000);
       if(!lu) throw new Error("pas de réponse en 8 s");
       if(lu.error) throw lu.error;
-      if(!SB_USER||(lu.data? lu.data.updated_at : null)===syncAt()) return;   /* rien de neuf : pas un mot */
+      relEchecs=0;
+      if(!SB_USER) return;
+      if((lu.data? lu.data.updated_at : null)===syncAt()){   /* rien de neuf : pas un mot, mais un envoi raté repart */
+        if(modifie()) pushCloud();
+        else if(syncState==="error"){ syncState="cloud"; updateTop(); }
+        return; }
       if(await pullCloud()){ rafraichir(); toast("🔄 Mis à jour avec ton autre appareil"); }
       else updateTop();
-    }catch(e){ reluA=0; console.warn("☁️ Relecture du cloud impossible pour l'instant :",e&&e.message||e); }   /* hors-ligne : on réessaiera */
+    }catch(e){ reluA=0; console.warn("☁️ Relecture du cloud impossible pour l'instant :",e&&e.message||e);
+      if(++relEchecs<=3) setTimeout(relireCloud,2000); }
     finally{ relireP=null; }
   })();
 }
@@ -765,6 +776,7 @@ document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==
 window.addEventListener("focus",relireCloud);
 window.addEventListener("pagehide",envoyerSiBesoin);
 window.addEventListener("online",()=>{ envoyerSiBesoin(); relireCloud(); });
+setInterval(relireCloud,20000);
 
 /* ---------- Écran de connexion ---------- */
 function showLogin(){ const o=document.getElementById("authOverlay"); if(!o)return; o.classList.add("show");
