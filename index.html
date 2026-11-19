@@ -414,7 +414,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v19 · 03/11</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v20 · 18/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -563,7 +563,7 @@ function loadLocal(){
 }
 function load(){ loadLocal(); }
 function saveLocal(){ STORE.set("monbudget4", JSON.stringify(DB)); }
-function save(){ saveLocal(); marquerModifie(); schedulePush(); }
+function save(){ saveLocal(); marquerModifie(); schedulePush(); majWidgets(); }
 async function resetAll(){ if(!await demander("Réinitialiser toutes les données aux valeurs de départ ?\nTes ajouts seront perdus.",{oui:"Réinitialiser",danger:true})) return;
   DB={transactions:seedTx(),accounts:defaultAccounts(),categories:defaultCategories(),future:[]}; save(); toast("Réinitialisé"); go("dash"); }
 
@@ -674,7 +674,7 @@ function champChange(m){ return [...m.querySelectorAll("input,select,textarea")]
   : /^(checkbox|radio)$/.test(c.type)? c.checked!==c.defaultChecked : c.value!==c.defaultValue); }
 /* après une fusion en arrière-plan : on redessine, sauf pendant une saisie (on ne vide pas le formulaire en cours) ;
    sur les Opérations, la liste seule se redessine : elle ne touche ni aux filtres ni à ce qu'on y tape */
-function rafraichir(){ const f=document.activeElement, m=document.getElementById("main");
+function rafraichir(){ majWidgets(); const f=document.activeElement, m=document.getElementById("main");
   if(UI.tab==="saisie"||(f&&m&&m.contains(f)&&/^(INPUT|SELECT|TEXTAREA)$/.test(f.tagName))||(m&&champChange(m))){ updateTop(); if(UI.tab==="tx") renderTxList(); return; }
   render(); }
 
@@ -853,6 +853,8 @@ function majBqDots(){ document.querySelectorAll(".selbq").forEach(w=>{ const s=w
   const b=pref("couleurBanque")?banqueDe(acct(s.value)):null; d.style.display=b?"":"none"; if(b){ d.style.background=b.couleur; d.title=b.nom; } }); }
 /* ce que la case d'un compte affiche : le montant versé pour la crypto et l'assurance vie, le solde sinon */
 function soldeAffiche(a,bal){ return (a.type==="crypto"||a.id==="assurancevie")?((bal._inv&&bal._inv[a.id])||0):(bal[a.id]||0); }
+/* ce que dit la case d'un compte sous son solde */
+function tagCompte(a){ return (a.type==="crypto"||a.id==="assurancevie")?"montant investi":a.type==="epargne"?"épargne":a.type==="cash"?"espèces":a.type==="courant"?"compte courant":"placement"; }
 const JOURS_COURT=["dim.","lun.","mar.","mer.","jeu.","ven.","sam."];
 function frDateJ(iso){ if(!iso||iso.length!==10) return frDate(iso); const p=iso.split("-").map(Number); return JOURS_COURT[new Date(p[0],p[1]-1,p[2]).getDay()]+" "+frDate(iso); }
 function activeCats(){ return DB.categories.filter(c=>c.active); }
@@ -1305,6 +1307,7 @@ function render(){
   if(UI.tab==="compteur") recalcCaisse();
   if(UI.tab==="ia") drawNet("netBars");
   majBqDots();
+  majWidgets();
 }
 function monthSelector(){
   let o=`<option value="all">Toute l'année</option>`;
@@ -1319,12 +1322,7 @@ function viewDash(){
   const patrimoine=DB.accounts.filter(a=>a.active).reduce((a,x)=>a+(bal[x.id]||0),0);
   const caches=DB.accounts.filter(a=>a.active&&a.tdb===false);   /* masqués du tableau de bord (toujours utilisables) */
   const cards=DB.accounts.filter(a=>a.active&&a.tdb!==false).map(a=>{
-    const v=eur(soldeAffiche(a,bal)); let tag="";
-    if(a.type==="crypto"||a.id==="assurancevie") tag="montant investi";
-    else if(a.type==="epargne") tag="épargne";
-    else if(a.type==="cash") tag="espèces";
-    else if(a.type==="courant") tag="compte courant";
-    else tag="placement";
+    const v=eur(soldeAffiche(a,bal)), tag=tagCompte(a);
     const b=pref("couleurBanque")?banqueDe(a):null;   /* couleur de la banque (LCL, Revolut, SwissBorg…) ; les espèces sont à part */
     return `<div class="acct" style="${b?`border-left:5px solid ${b.couleur}`:""}"><div class="nm">${a.emoji} ${escH(a.name)}${bqPoint(a)}</div><div class="bal">${v}</div><div class="tagm">${tag}${b?` · <span class="bq" style="--bqc:${b.couleur}">${escH(b.nom)}</span>`:""}</div></div>`;
   }).join("");
@@ -3901,6 +3899,38 @@ function attendreSupabase(){
 /* une promesse qui abandonne au bout de N secondes : le réseau ne doit jamais figer l'app */
 function avecDelai(promesse,ms){
   return Promise.race([promesse, new Promise(res=>setTimeout(()=>res(null),ms))]);
+}
+/* ===================== WIDGETS DE L'APP iPHONE ET MAC ===================== */
+/* Dans l'app Budget de l'iPhone et du Mac (projet CL/IPHONE), window.AppWidget existe : ses widgets « Mon solde » et
+   « À venir » reçoivent le haut du tableau de bord et les paiements prévus. Dans le navigateur, rien n'est calculé.
+   Les widgets passent seuls au jour suivant pendant 15 jours : ils reçoivent les paiements jusqu'à l'horizon + 15 jours.
+   Détail : docs/app-iphone-et-mac.md. */
+var widgetsT=null;   /* var : save() ou render() peuvent passer avant cette ligne */
+function majWidgets(){
+  if(!(window.AppWidget&&typeof window.AppWidget.mettreAJour==="function")) return;
+  clearTimeout(widgetsT); widgetsT=setTimeout(envoyerWidgets,500);
+}
+function envoyerWidgets(){
+  widgetsT=null;
+  try{ window.AppWidget.mettreAJour(donneesWidgets()); }catch(e){ console.warn("Widgets :",e); }
+}
+/* l'app passe en arrière-plan : ce qui attendait part tout de suite */
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden"&&widgetsT){ clearTimeout(widgetsT); envoyerWidgets(); } });
+function isoDans(jours){ const d=new Date(); d.setDate(d.getDate()+jours); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function donneesWidgets(){
+  const bal=computeBalances(), jours=Math.max(1,Math.round(Number(pref("tdbJours"))||30)), fin=isoDans(jours+15);
+  const nomCompte=id=>{ const a=acct(id); return a?(a.emoji?a.emoji+" ":"")+a.name:(id||""); };
+  const comptes=DB.accounts.filter(a=>a.active&&a.tdb!==false).map(a=>{ const b=pref("couleurBanque")?banqueDe(a):null;
+    return {emoji:a.emoji||"",nom:a.name||"",solde:soldeAffiche(a,bal),tag:tagCompte(a),banque:b?b.nom:null,couleur:b?b.couleur:null}; });
+  /* comme « À venir bientôt » : tous les paiements prévus en retard, puis les suivants, par date */
+  const liste=DB.future.filter(f=>f.statut==="prévu"&&f.date&&f.date<=fin).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,80).map(f=>{
+    const tr=f.type==="transfer";
+    return {date:f.date,nom:f.nom||"",montant:Number(f.montant)||0,transfert:tr,
+      detail:tr?nomCompte(f.from)+" → "+nomCompte(f.to):[f.categorie,nomCompte(f.compte)].filter(Boolean).join(" · ")}; });
+  return {version:1,jour:todayISO(),
+    solde:{disponible:disponible(bal),comptesDispo:comptesDispo().map(a=>a.name||""),
+      patrimoine:DB.accounts.filter(a=>a.active).reduce((s,a)=>s+(bal[a.id]||0),0),comptes},
+    avenir:{jours,liste}};
 }
 async function boot(){
   /* 1) l'app s'affiche tout de suite avec les données locales — sans rien attendre du réseau */
