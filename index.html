@@ -416,7 +416,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v21 · 22/11</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v22 · 22/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -1298,7 +1298,7 @@ function renderNav(){
     +`<button class="${UI.tab==='reglages'?'active':''}" onclick="go('reglages')" style="margin-top:auto"><span class="ic">⚙️</span>Réglages</button>`;
   document.getElementById("bottomnav").innerHTML=NAV.map(([k,l,i,s])=>`<button class="${UI.tab===k?'active':''}" onclick="go('${k}')"><span class="ic">${i}</span>${s}</button>`).join("");
 }
-function go(tab){ UI.tab=tab; UI.edit=null; UI.retour=null; UI.objDepuis=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; UI.espRecompter=false; UI.fusionCat=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
+function go(tab){ UI.tab=tab; UI.avForm=false; UI.detteForm=false; UI.detteEdit=null; UI.edit=null; UI.retour=null; UI.objDepuis=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; UI.espRecompter=false; UI.fusionCat=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
   const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
@@ -1713,6 +1713,11 @@ function bindSaisie(){
   note.addEventListener("blur",()=>setTimeout(()=>{ if(drop)drop.classList.remove("show"); },150));
   runSugg(); runStar();
 }
+/* un libellé déjà connu reprend toujours la même écriture : « netflix », « Netflix  » et « NETFLIX » = celui de la liste
+   (⭐ d'abord, sinon le plus utilisé). Les espaces en trop sont retirés. */
+function libCanon(txt,pool){ const t=String(txt||"").replace(/\s+/g," ").trim(); if(!t) return t;
+  const k=t.toLowerCase(), L=pool.filter(p=>String(p.txt||"").replace(/\s+/g," ").trim().toLowerCase()===k).sort((a,b)=>((b.star?1:0)-(a.star?1:0))||((b.n||0)-(a.n||0)));
+  return L.length?String(L[0].txt).replace(/\s+/g," ").trim():t; }
 function starLib(){
   const note=document.getElementById("fNote"); if(!note)return; const txt=note.value.trim(); if(!txt)return;
   if(!(DB.libelles||[]).some(l=>(l.txt||"").toLowerCase()===txt.toLowerCase())){
@@ -1740,14 +1745,14 @@ function saveTx(){
   if(UI.type==="tr"){
     const from=document.getElementById("fFrom").value, to=document.getElementById("fTo").value;
     if(from===to){ toast("Choisis deux comptes différents"); return; }
-    const obj={id:eid||uid(),type:"transfer",date,montant:Math.abs(mont),from,to,note:document.getElementById("fNote").value.trim(),observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():"")};
+    const obj={id:eid||uid(),type:"transfer",date,montant:Math.abs(mont),from,to,note:libCanon(document.getElementById("fNote").value,libPoolTr()),observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():"")};
     if(espX) obj.esp=espX;
     if(dt) obj.dette=dt;
     commit(obj,eid,eid?UI.retour:(dt?"avenir":null)); return;
   }
   const espE=espX;
   const obj={ id:eid||uid(), date, montant:(UI.type==="dep"?-1:1)*Math.abs(mont), esp:espE||undefined,
-    note:document.getElementById("fNote").value.trim(), categorie:document.getElementById("fCat").value,
+    note:libCanon(document.getElementById("fNote").value,libPool()), categorie:document.getElementById("fCat").value,
     sousCategorie:(document.getElementById("fSub").value==="__new__"?"":document.getElementById("fSub").value), compte:document.getElementById("fCompte").value,
     moyen:document.getElementById("fMoyen").value, observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():""), periode:(UI.edit&&UI.edit.periode)||"" };
   if(dt) obj.dette=dt;
@@ -1826,6 +1831,7 @@ function commit(obj,eid,dest){
   /* Détail en billets/pièces : décomptes mis à jour tout seuls, ou recomptage à faire */
   const r=ajusterDecomptes(old,obj);
   if(r.auto.length) toast((eid?"Modifié":"Ajouté")+" ✅ · décompte de "+r.auto.map(acctName).join(" et ")+" mis à jour 💵");
+  dettesAjusterDire();   /* dette soldée : ses mensualités prévues partent ; remboursement en plus : elles sont recalculées */
   const force=!!UI.espRecompter; UI.espRecompter=false;   /* « Je ne sais plus ce que j'ai donné » : recompter dans tous les cas */
   UI.edit=null; save();
   const cashAccts=r.recompter.slice();
@@ -1923,7 +1929,7 @@ function fitemHTML(f,today){
   const amtCls=isTr?"":(dep?"neg":"pos"), amtPre=isTr?"⇄ ":(dep?"":"+");
   const ligne2=isTr?`${acctHTML(f.from)} → ${acctHTML(f.to)}`:`${f.categorie||'—'}${f.sousCategorie?' / '+f.sousCategorie:''} · ${acctHTML(f.compte)}`;
   return `<div class="fitem"><div class="em" style="font-size:20px">${f.statut==="payé"?"✅":f.statut==="annulé"?"🚫":late?"⏰":"📌"}</div>
-    <div class="fi"><div class="ft1">${escH(f.nom)}${f.dette&&detteDe(f.dette)?' <span class="etq">🤝 dette</span>':""} <span class="amt ${amtCls}">${amtPre}${eur(f.montant)}</span></div>
+    <div class="fi"><div class="ft1">${escH(f.nom)}${f.dette&&detteDe(f.dette)?` <span class="etq">${detteDe(f.dette).genre==="auto"?"🐷":"🤝"} ${escH(detteDe(f.dette).nom||detteNom(detteDe(f.dette)))}</span>`:""} <span class="amt ${amtCls}">${amtPre}${eur(f.montant)}</span></div>
       <div class="ft2">${frDate(f.date)} · ${ligne2}${fl?' · '+fl:''}</div></div>
     <span class="chip ${f.statut==='payé'?'paye':f.statut==='annulé'?'annule':late?'retard':'prevu'}">${late&&f.statut==='prévu'?'en retard':f.statut}</span>
     <div style="display:flex;gap:4px">
@@ -1936,7 +1942,7 @@ function fitemHTML(f,today){
     ${UI.serieOpen===f.id?seriePanelHTML(f):""}`;
 }
 /* « À venir » a deux sous-onglets : 📌 Paiements (les échéances) et 🤝 Dettes (autocrédits, argent à rendre, argent donné) */
-function setAvTab(t){ UI.avTab=t; UI.detteEdit=null; UI.serieOpen=null; render(); window.scrollTo(0,0); }
+function setAvTab(t){ UI.avTab=t; UI.avForm=false; UI.detteForm=false; UI.detteEdit=null; UI.serieOpen=null; render(); window.scrollTo(0,0); }
 function ouvrirDettes(){ go("avenir"); UI.avTab="dettes"; render(); }
 function viewAvenir(){
   const dt=UI.avTab==="dettes", nb=dettesActives().length;
@@ -1965,7 +1971,7 @@ function viewPaiements(){
     if(k!==cur){ cur=k; const L=G(k), t=som(L);
       items+=`<div class="mois-sep"><span>${k==="retard"?"⏰ En retard":nomMois(k)}</span><span>${L.length} · ${t?"−"+eur(t):"—"}</span></div>`; }
     items+=fitemHTML(f,today); });
-  if(!aVenir.length) items=`<div class="empty">Rien à payer pour l'instant 🎉${passes.length?"<br>Ce qui est réglé est rangé dans l'historique, juste en dessous.":" Ajoute un paiement ci-dessous 👇"}</div>`;
+  if(!aVenir.length) items=`<div class="empty">Rien à payer pour l'instant 🎉${passes.length?"<br>Ce qui est réglé est rangé dans l'historique, juste en dessous.":" Ajoute-en un avec le bouton ➕ juste au-dessus 👆"}</div>`;
   const lignes=[];
   if(G("retard").length) lignes.push(["⏰ En retard",`<span class="neg">−${eur(som(G("retard")))}</span>`]);
   const moins=v=>(v>0.005?"−":"")+eur(v);
@@ -1987,14 +1993,14 @@ function viewPaiements(){
       <div class="muted" style="font-size:11.5px;margin-top:8px">↩️ remet une échéance dans « À payer » si elle y a été rangée par erreur. L'opération déjà enregistrée, elle, reste dans Opérations.</div></div>`;
   }
   const t=FNEW.type;
-  /* Les listes d'abord : on ouvre cette page pour voir ce qu'il reste à payer, pas pour saisir.
-     Le formulaire est en dessous (« Ajoute un paiement ci-dessous 👇 » du message vide y renvoie). */
-  return `${recap}
+  /* Le bouton ➕ est tout en haut : il ouvre le formulaire au même endroit, sans avoir à descendre sous les listes. */
+  const haut=UI.avForm?"":`<button class="btn" style="margin-bottom:16px" onclick="avFormOuvrir()">➕ Prévoir un paiement</button>`;
+  return `${haut}${UI.avForm?"\u0000FORM":""}${recap}
   <div class="card"><h2>📌 À payer <span class="tag">${aVenir.length}</span></h2>
     ${aVenir.some(f=>isSerie(f))?`<div class="muted" style="font-size:11.5px;margin-bottom:10px">🔁 Un prélèvement change de montant ? Clique le bouton <b>🔁</b> de n'importe laquelle de ses échéances : tu modifies ou supprimes <b>toutes les suivantes d'un seul coup</b>.</div>`:""}
     <div>${items}</div></div>
-  ${histo}
-  <div class="card"><h2>➕ Prévoir un paiement</h2>
+  ${histo}`.replace("\u0000FORM",()=>UI.avForm?`
+  <div class="card" id="avForm"><h2>➕ Prévoir un paiement</h2>
     <div class="seg"><button class="${t==='dep'?'on-dep':''}" onclick="FNEW.type='dep';render()">↓ Dépense</button>
       <button class="${t==='ent'?'on-ent':''}" onclick="FNEW.type='ent';render()">↑ Revenu</button>
       <button class="${t==='tr'?'on-tr':''}" onclick="FNEW.type='tr';render()">⇄ Transfert</button></div>
@@ -2023,10 +2029,12 @@ function viewPaiements(){
       <div class="field" style="display:flex;align-items:flex-end;padding-bottom:2px"><label style="display:flex;align-items:center;gap:8px;margin:0;cursor:pointer"><input type="checkbox" id="fuSansFin" style="width:auto"> ♾️ Sans fin (renouvelle tout seul)</label></div>
     </div>
     <div class="muted" style="font-size:11.5px;margin:-2px 0 12px">💡 <b>Paiement en plusieurs fois</b> : choisis « Mensuel », mets le montant d'<b>une</b> échéance et le nombre de fois (ex : 3). <b>Abonnement annuel sur 2 ans</b> : « Annuel », 2 échéances.</div>
-    <button class="btn" onclick="addFuture()">✅ Ajouter</button></div>`;
+    <button class="btn" onclick="addFuture()">✅ Ajouter</button>
+    <button class="btn ghost" style="margin-top:8px" onclick="UI.avForm=false;render()">Fermer</button></div>`:"");
 }
+function avFormOuvrir(){ UI.avForm=true; render(); window.scrollTo(0,0); const n=document.getElementById("fuNom"); if(n) n.focus(); }
 function addFuture(){
-  const nom=document.getElementById("fuNom").value.trim();
+  const nom=libCanon(document.getElementById("fuNom").value,avenirNoms(FNEW.type));   /* un nom déjà utilisé garde la même écriture */
   const mont=parseFloat((document.getElementById("fuMontant").value||"").replace(",","."));
   if(!nom){toast("Donne un nom au paiement");return;}
   if(!mont||mont<=0){toast("Indique un montant");return;}
@@ -2049,7 +2057,7 @@ function addFuture(){
     if(isTr){ it.type="transfer"; it.from=from; it.to=to; } else { it.categorie=cat; it.sousCategorie=sousCat; it.compte=compte; }
     DB.future.push(it);
   }
-  save(); toast(n>1?`${n} échéances ajoutées ✅`:"Paiement prévu ajouté ✅"); FNEW={type:"dep"}; render();
+  save(); toast(n>1?`${n} échéances ajoutées ✅`:"Paiement prévu ajouté ✅"); FNEW={type:"dep"}; UI.avForm=false; render();
 }
 function futurePay(id,dest){ const f=DB.future.find(x=>x.id===id); if(!f)return;   /* dest : page où aller ensuite (Opérations par défaut) */
   f.statut="payé";
@@ -2064,7 +2072,7 @@ function futurePay(id,dest){ const f=DB.future.find(x=>x.id===id); if(!f)return;
   const obj = f.type==="transfer"
     ? {id:uid(),type:"transfer",date:f.date,montant:Math.abs(f.montant),from:f.from,to:f.to,note:f.nom}
     : {id:uid(),date:f.date,montant:f.montant,categorie:f.categorie,sousCategorie:f.sousCategorie||"",compte:f.compte,moyen:f.montant<0?"PL":"VIR",note:f.nom,observation:"",periode:""};
-  if(f.dette) obj.dette=f.dette;   /* mensualité d'une dette : l'opération la rembourse */
+  if(f.dette){ obj.dette=f.dette; const dd=detteDe(f.dette); if(dd&&dd.genre==="auto") obj.observation=dd.nom||""; }   /* mensualité d'une dette : l'opération la rembourse (la raison va dans l'observation) */
   commit(obj,null,dest);
 }
 async function futureEdit(id){ const f=DB.future.find(x=>x.id===id); if(!f)return;
@@ -2207,7 +2215,7 @@ function detteEcheances(d,depuis){ const L=[], ref=depuis&&depuis>todayISO()?dep
   return L; }
 function detteEtat(d){ const r2=x=>Math.round(x*100)/100;
   const ops=DB.transactions.filter(t=>t.dette===d.id).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  const rendu=r2(ops.filter(t=>estRembDette(d,t)).reduce((a,t)=>a+Math.abs(t.montant),0)), reste=r2(Math.max(0,(d.montant||0)-rendu));
+  const rendu=r2(ops.filter(t=>estRembDette(d,t)).reduce((a,t)=>a+Math.abs(t.montant),0)), reste=d.clos?0:r2(Math.max(0,(d.montant||0)-rendu));   /* d.clos : marquée « déjà remboursée » à la main */
   const dernier=ops.filter(t=>estRembDette(d,t)).map(t=>t.date||"").sort().pop();
   const solde=reste<0.005, ech=detteEcheances(d,dernier), nb=Math.max(1,ech.length);
   const prevus=DB.future.filter(f=>f.dette===d.id&&f.statut==="prévu").sort((a,b)=>(a.date||"").localeCompare(b.date||""));
@@ -2238,7 +2246,7 @@ function detteCandidats(d){ const libre=t=>!(t.dette&&detteDe(t.dette))&&(t.date
   const L=d.genre==="auto"?DB.transactions.filter(t=>t.type==="transfer"&&t.to===d.compte&&libre(t))
     :DB.transactions.filter(t=>isArgentTx(t)&&(d.genre==="pret"?t.montant>0:t.montant<0)&&libre(t)&&(t.sousCategorie||"").trim().toLowerCase()===(d.personne||"").trim().toLowerCase());
   return L.sort((a,b)=>(b.date||"").localeCompare(a.date||"")); }
-function detteHTML(d,e){ const auto=d.genre==="auto", pret=d.genre==="pret", pct=d.montant>0?Math.min(100,e.rendu/d.montant*100):0, s=n=>n>1?"s":"";
+function detteHTML(d,e){ const auto=d.genre==="auto", pret=d.genre==="pret", pct=d.clos?100:d.montant>0?Math.min(100,e.rendu/d.montant*100):0, s=n=>n>1?"s":"";
   const quand=e.solde?`<span class="pos">✅ remboursé</span>`:!d.echeance?"sans échéance":e.retard?`<span class="chip retard">échéance dépassée · ${frDate(d.echeance)}</span>`:`à ${pret?"me ":""}rendre avant le <b>${frDate(d.echeance)}</b>`;
   let plan="";
   if(!e.solde){
@@ -2253,12 +2261,13 @@ function detteHTML(d,e){ const auto=d.genre==="auto", pret=d.genre==="pret", pct
     <div class="dt1"><span>${auto?"🐷":pret?"🫴":"👤"} <b>${escH(detteNom(d))}</b></span><b class="${e.solde||pret?"pos":"neg"}">${e.solde?"✅":eur(e.reste)}</b></div>
     <div class="muted" style="font-size:12px">${eur(d.montant)} ${auto?"pris sur "+acctHTML(d.compte):(pret?"prêtés à <b>":"avancés par <b>")+escH(d.personne||"—")+"</b>"} le ${frDate(d.date)} · ${quand}</div>
     <div class="track" style="margin-top:7px"><div class="fill" style="width:${pct}%;background:${e.solde?"var(--pos)":"var(--accent)"}"></div></div>
-    <div class="muted" style="font-size:11.5px;margin-top:3px">déjà ${pret?"rendu":"remboursé"} <b>${eur(e.rendu)}</b> sur ${eur(d.montant)}${e.solde?"":` · reste <b>${eur(e.reste)}</b>`}</div>
+    <div class="muted" style="font-size:11.5px;margin-top:3px">déjà ${pret?"rendu":"remboursé"} <b>${eur(e.rendu)}</b> sur ${eur(d.montant)}${e.solde?(d.clos&&e.rendu<d.montant-0.005?" · marqué « déjà remboursé » le "+frDate(d.clos):""):` · reste <b>${eur(e.reste)}</b>`}</div>
     ${plan}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px">
       ${e.solde?"":b(pret?"↩️ On m'a rendu":"↩️ Rembourser","detteRembourser")}
       ${!e.solde&&e.ech.length&&!e.prevus.length?b("📅 Prévoir les mensualités","dettePlanifier"):""}
       ${!e.solde&&e.prevus.length&&Math.abs(e.prevus.reduce((a,f)=>a+Math.abs(f.montant),0)-e.reste)>0.005?b("🔄 Recalculer les mensualités","detteRecaler"):""}
+      ${e.solde?(d.clos?b("↩️ Rouvrir","detteRouvrir"):""):b(pret?"✅ Déjà rendu":"✅ Déjà remboursé","detteClore")}
       ${b("✏️","detteModifier")}${b("🗑️","detteSuppr","color:var(--neg)")}</div>
     ${e.ops.length||cand.length?pli("dette:"+d.id,`<span class="tot"><span>📋 Opérations</span><span class="muted" style="font-size:12px">${e.ops.length} rattachée${s(e.ops.length)}${cand.length?" · "+cand.length+" à rattacher ?":""}</span></span>`,
       e.ops.map(t=>detteOpLigne(d,t,true)).join("")
@@ -2316,7 +2325,8 @@ function viewDettes(){
   /* le formulaire : nouvelle dette, ou modification */
   const ed=UI.detteEdit?detteDe(UI.detteEdit):null, g=ed?ed.genre:DNEW.genre, v=ed||{};
   const epargnes=DB.accounts.filter(a=>a.active&&isSavings(a.id)), selC=v.compte||(epargnes.some(a=>a.id==="livretA")?"livretA":(epargnes[0]||{}).id);
-  const form=`<div class="card" id="detteForm"><h2>${ed?"✏️ Modifier « "+escH(detteNom(ed))+" »":"➕ Noter une dette"}</h2>
+  const form=!(ed||UI.detteForm)?`<button class="btn" style="margin-bottom:16px" onclick="UI.detteForm=true;render();window.scrollTo(0,0)">➕ Noter une dette ou un prêt</button>`
+   :`<div class="card" id="detteForm"><h2>${ed?"✏️ Modifier « "+escH(detteNom(ed))+" »":"➕ Noter une dette ou un prêt"}</h2>
     ${ed?"":`<div class="seg"><button class="${g==='auto'?'on-tr':''}" onclick="DNEW.genre='auto';render()">🐷 Autocrédit</button>
       <button class="${g==='dois'?'on-dep':''}" onclick="DNEW.genre='dois';render()">👤 Je dois</button>
       <button class="${g==='pret'?'on-ent':''}" onclick="DNEW.genre='pret';render()">🫴 On me doit</button></div>`}
@@ -2331,8 +2341,8 @@ function viewDettes(){
         <span>Enregistrer aussi ${g==="auto"?"le virement de l'épargne vers mon compte":g==="pret"?"l'argent sorti dans mes opérations":"l'argent reçu dans mes opérations"} <span class="muted">— décoche si tu l'as déjà saisi</span></span></label>
       <div class="field" id="dtVersBloc"><label>${g==="auto"?"Vers le compte":g==="pret"?"Sorti du compte":"Reçu sur le compte"}</label>${selBq(`<select id="dtVers">${DB.accounts.filter(a=>a.active&&(g!=="auto"||isLiquid(a.id))).map(a=>`<option value="${a.id}" ${a.id==="cc"?"selected":""}>${acctTxt(a)}</option>`).join("")}</select>`)}</div>`}
     <button class="btn" onclick="addDette()">${ed?"💾 Enregistrer":"✅ Ajouter"}</button>
-    ${ed?`<button class="btn ghost" style="margin-top:8px" onclick="UI.detteEdit=null;render()">Annuler</button>`:""}</div>`;
-  return recap+autoCard+doisCard+pretsCard+donsCard+finiesCard+form;
+    <button class="btn ghost" style="margin-top:8px" onclick="UI.detteEdit=null;UI.detteForm=false;render()">${ed?"Annuler":"Fermer"}</button></div>`;
+  return form+recap+autoCard+doisCard+pretsCard+donsCard+finiesCard;
 }
 function dtMois(v){ const n=parseInt(v), d=document.getElementById("dtDate"), e=document.getElementById("dtEch"); if(n>0&&e) e.value=moisPlus((d&&d.value)||todayISO(),n); }
 function allerFormDette(){ const el=document.getElementById("detteForm"); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); }
@@ -2347,30 +2357,32 @@ function addDette(){
   else { pers=g("dtPers").value.trim(); if(!pers){ toast("Indique la personne"); return; }
     pers=personnesArgent().find(s=>s.toLowerCase()===pers.toLowerCase())||pers; }   /* « maman » = « Maman » : l'écriture de la liste */
   if(ed){ Object.assign(ed,{nom,montant:m,date,echeance:ech,majLe:maintenantISO()}); if(genre==="auto") ed.compte=compte; else ed.personne=pers;
-    UI.detteEdit=null; save(); render(); toast("Modifié ✅"); return; }
+    UI.detteEdit=null; UI.detteForm=false; toast("Modifié ✅"); dettesAjusterDire(); save(); render(); return; }
   const d={id:uid(),genre,nom,montant:m,date,echeance:ech,majLe:maintenantISO()}; if(genre==="auto") d.compte=compte; else d.personne=pers;
   let obj=null;
   if(g("dtOp")&&g("dtOp").checked){ const vers=g("dtVers").value;
     if(genre==="auto"){ if(vers===compte){ toast("Choisis deux comptes différents"); return; }
-      obj={id:uid(),type:"transfer",date,montant:m,from:compte,to:vers,note:"Autocrédit"+(nom?" — "+nom:""),observation:"",dette:d.id}; }
+      obj={id:uid(),type:"transfer",date,montant:m,from:compte,to:vers,note:"Autocrédit",observation:nom,dette:d.id}; }   /* libellé toujours le même ; la raison va dans l'observation */
     else { const cat=catArgent(); if(!cat){ toast("Crée d'abord une catégorie de genre 🤝 Argent (Réglages → Catégories)"); return; }
       if(!Array.isArray(cat.subs)) cat.subs=[]; if(cat.subs.indexOf(pers)<0) cat.subs.push(pers);
       obj={id:uid(),date,montant:genre==="pret"?-m:m,categorie:cat.name,sousCategorie:pers,compte:vers,moyen:isCashAcct(vers)?"ES":"VIR",note:nom||(genre==="pret"?"Prêt à ":"Avance de ")+pers,observation:"",periode:"",dette:d.id}; } }
-  DB.dettes.push(d);
+  DB.dettes.push(d); UI.detteForm=false;
   if(obj) commit(obj,null,"avenir"); else { save(); render(); toast(genre==="pret"?"Prêt noté ✅":"Dette notée ✅"); }
 }
 /* ↩️ Rembourser : la Saisie s'ouvre, déjà remplie (montant de la mensualité, comptes) ; on vérifie et on valide */
 function detteRembourser(id){ const d=detteDe(id); if(!d) return; const e=detteEtat(d), m=Math.min(e.reste,e.parMois||e.reste);
-  if(d.genre==="auto") UI.edit={type:"transfer",date:todayISO(),montant:m,from:"cc",to:d.compte,note:"Remboursement autocrédit"+(d.nom?" — "+d.nom:""),dette:d.id};
+  const fait=e.ops.filter(t=>estRembDette(d,t)).length, rang=d.echeance&&e.ech.length?` (${fait+1}/${fait+e.ech.length})`:"";   /* « (3/12) » s'il y a une échéance */
+  if(d.genre==="auto") UI.edit={type:"transfer",date:todayISO(),montant:m,from:"cc",to:d.compte,note:"Auto-remboursement"+rang,observation:d.nom||"",dette:d.id};
   else { const cat=catArgent(); if(!cat){ toast("Crée d'abord une catégorie de genre 🤝 Argent (Réglages → Catégories)"); return; }
     UI.edit={date:todayISO(),montant:d.genre==="pret"?m:-m,categorie:cat.name,sousCategorie:d.personne||"",compte:"cc",note:"Remboursement"+(d.personne?" "+d.personne:""),dette:d.id}; }
   UI.type=d.genre==="auto"?"tr":d.genre==="pret"?"ent":"dep"; UI.retour="avenir"; UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
 /* 📅 les mensualités deviennent des paiements à venir (une série) ; les payer là-bas rembourse la dette */
 function dettePlanifier(id){ const d=detteDe(id); if(!d) return; const e=detteEtat(d), n=e.ech.length; if(!n||e.solde) return;
   const cat=d.genre==="auto"?null:catArgent(); if(d.genre!=="auto"&&!cat){ toast("Crée d'abord une catégorie de genre 🤝 Argent (Réglages → Catégories)"); return; }
-  const base=Math.floor(e.reste/n*100)/100, serieId=uid(), lib="Remboursement "+(d.genre==="auto"?"autocrédit"+(d.nom?" — "+d.nom:""):(d.personne||detteNom(d)));
+  const base=Math.floor(e.reste/n*100)/100, serieId=uid(), lib=d.genre==="auto"?"Auto-remboursement":"Remboursement "+(d.personne||detteNom(d));
+  const fait=e.ops.filter(t=>estRembDette(d,t)).length, tot=fait+n;   /* la numérotation continue après ce qui est déjà remboursé */
   e.ech.forEach((date,i)=>{ const m=i===n-1?Math.round((e.reste-base*(n-1))*100)/100:base;   /* la dernière prend les centimes qui restent */
-    const it={id:uid(),serieId,nom:n>1?`${lib} (${i+1}/${n})`:lib,date,statut:"prévu",freq:n>1?"mensuel":"ponctuel",sansFin:false,dette:d.id};
+    const it={id:uid(),serieId,nom:tot>1?`${lib} (${fait+i+1}/${tot})`:lib,date,statut:"prévu",freq:n>1?"mensuel":"ponctuel",sansFin:false,dette:d.id};
     if(d.genre==="auto"){ it.type="transfer"; it.montant=m; it.from="cc"; it.to=d.compte; }
     else { it.montant=d.genre==="pret"?m:-m; it.categorie=cat.name; it.sousCategorie=d.personne||""; it.compte="cc"; }
     DB.future.push(it); });
@@ -2380,8 +2392,27 @@ function detteRecaler(id){ const d=detteDe(id); if(!d) return; const e=detteEtat
   const base=Math.floor(e.reste/n*100)/100;
   e.prevus.forEach((f,i)=>{ const m=i===n-1?Math.round((e.reste-base*(n-1))*100)/100:base; f.montant=(f.type==="transfer"||d.genre==="pret")?m:-m; });
   save(); render(); toast("Mensualités recalculées : "+eur(base)+" ✅"); }
+/* après chaque opération : une dette entièrement remboursée n'a plus de mensualités prévues (elles sont retirées),
+   et si le reste ne correspond plus à ce qui est prévu (remboursement en plus, montant corrigé), il est réparti dessus */
+function dettesAjuster(){ let retire=0, recale=0;
+  (DB.dettes||[]).forEach(d=>{ const e=detteEtat(d), n=e.prevus.length; if(!n) return;
+    if(e.solde){ const ids=new Set(e.prevus.map(f=>f.id)); DB.future=DB.future.filter(f=>!ids.has(f.id)); retire+=n; return; }
+    if(Math.abs(e.prevus.reduce((a,f)=>a+Math.abs(f.montant),0)-e.reste)<=0.005) return;
+    const base=Math.floor(e.reste/n*100)/100;
+    e.prevus.forEach((f,i)=>{ const m=i===n-1?Math.round((e.reste-base*(n-1))*100)/100:base; f.montant=(f.type==="transfer"||d.genre==="pret")?m:-m; }); recale++; });
+  return {retire,recale}; }
+function dettesAjusterDire(){ const r=dettesAjuster();
+  if(r.retire) toast("Tout est remboursé 🎉 "+r.retire+" mensualité"+(r.retire>1?"s":"")+" prévue"+(r.retire>1?"s":"")+" retirée"+(r.retire>1?"s":""));
+  else if(r.recale) toast("Mensualités recalculées sur ce qu'il reste ✅");
+  return r; }
+/* ✅ Déjà remboursé : la dette est soldée sans chercher l'opération qui l'a remboursée (un seul virement a pu en rembourser plusieurs) */
+function detteClore(id){ const d=detteDe(id); if(!d) return;
+  const copie=DB.future.filter(f=>f.dette===id&&f.statut==="prévu");
+  d.clos=todayISO(); d.majLe=maintenantISO(); dettesAjuster(); save(); render();
+  toast("Marqué comme remboursé ✅",{libelle:"↩️ Annuler",fn:()=>{ delete d.clos; d.majLe=maintenantISO(); copie.forEach(f=>{ if(!DB.future.some(x=>x.id===f.id)) DB.future.push(f); }); save(); render(); }}); }
+function detteRouvrir(id){ const d=detteDe(id); if(!d) return; delete d.clos; d.majLe=maintenantISO(); save(); render(); toast("Rouverte ↩️"); }
 function detteRattacher(id,txId){ const t=DB.transactions.find(x=>x.id===txId); if(!t||!detteDe(id)) return;
-  t.dette=id; t.majLe=maintenantISO(); save(); render(); toast("Rattaché ✅"); }
+  t.dette=id; t.majLe=maintenantISO(); toast("Rattaché ✅"); dettesAjusterDire(); save(); render(); }
 function detteDetacher(txId){ const t=DB.transactions.find(x=>x.id===txId); if(!t) return;
   const avant=t.dette; delete t.dette; t.majLe=maintenantISO(); save(); render();
   toast("Détaché",{libelle:"↩️ Annuler",fn:()=>{ t.dette=avant; save(); render(); }}); }
