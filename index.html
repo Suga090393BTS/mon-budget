@@ -285,6 +285,8 @@ body.calc-ouverte .toast{bottom:calc(min(370px,55vh) + var(--navh,0px) + 14px)}
 .chip.retard{background:var(--rose);color:var(--neg)}
 .fitem{display:flex;align-items:center;gap:11px;padding:12px 4px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .fitem:last-child{border-bottom:none}
+.dette{padding:13px 0;border-bottom:1px solid var(--line)} .dette:last-of-type{border-bottom:none}
+.dette .dt1{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:14.5px;margin-bottom:2px} .dette .dt1>b{white-space:nowrap}
 .fitem .fi{flex:1;min-width:140px}
 .fitem .ft1{font-weight:700;font-size:14px}
 .fitem .ft2{font-size:11.5px;color:var(--muted)}
@@ -414,7 +416,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v20 · 18/11</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v21 · 22/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -508,6 +510,7 @@ function ensureDefaults(){
   if(!(P.nbSugg>0)) P.nbSugg=3;                                    /* saisie : nb de catégories proposées pour un libellé */
   if(!Array.isArray(DB.categories)||!DB.categories.length) DB.categories=defaultCategories();
   if(!Array.isArray(DB.future)) DB.future=[];
+  if(!Array.isArray(DB.dettes)) DB.dettes=[];   /* dettes et autocrédits (À venir → 🤝 Dettes) */
   if(!Array.isArray(DB.cashCounts)) DB.cashCounts=[];
   if(!Array.isArray(DB.horaires)) DB.horaires=[];
   if(!Array.isArray(DB.vacances)) DB.vacances=[];
@@ -604,7 +607,7 @@ function hacher(s){ let h1=0xdeadbeef,h2=0x41c6ce57;
   return (4294967296*(2097151&h2)+(h1>>>0)).toString(36); }
 const emp1=v=>hacher(canon(v));
 /* listes fusionnées élément par élément, avec le champ qui reconnaît un élément ; les objets (prefs, trained, payes…) le sont clé par clé */
-const SYNC_LISTES={transactions:"id",future:"id",accounts:"id",banques:"id",cashCounts:"id",horaires:"id",vacances:"id",objectifs:"id",cryptoTrack:"id",categories:"name",libelles:"txt"};
+const SYNC_LISTES={transactions:"id",future:"id",dettes:"id",accounts:"id",banques:"id",cashCounts:"id",horaires:"id",vacances:"id",objectifs:"id",cryptoTrack:"id",categories:"name",libelles:"txt"};
 function elements(k,v){   /* [[clé, élément]…], ou null pour une valeur prise d'un bloc */
   if(Array.isArray(v)){ const f=SYNC_LISTES[k]; if(!f) return null; const vus={};
     return v.map(x=>{ let c=x&&typeof x==="object"&&x[f]!=null? "="+x[f] : "#"+emp1(x); vus[c]=(vus[c]||0)+1; if(vus[c]>1) c+="~"+vus[c]; return [c,x]; }); }
@@ -648,7 +651,7 @@ function fusionElements(k,b,Lv,Rv,il,ir){
 /* aucune version commune connue (premier passage de cet appareil pour ce compte) : le cloud fait foi,
    on y ajoute seulement les saisies d'ici qu'il n'a pas (sauf les opérations d'exemple) */
 function fusionSansBase(L,R){ const M=Object.assign({},R);
-  ["transactions","future","cashCounts","horaires","vacances","objectifs"].forEach(k=>{ if(!Array.isArray(L[k])) return;
+  ["transactions","future","dettes","cashCounts","horaires","vacances","objectifs"].forEach(k=>{ if(!Array.isArray(L[k])) return;
     const r=Array.isArray(R[k])?R[k]:[], ids=new Set(r.map(x=>x&&x.id));
     const plus=L[k].filter(x=>x&&x.id!=null&&!ids.has(x.id)&&!/^seed/.test(x.id)); if(plus.length) M[k]=r.concat(plus); });
   return M; }
@@ -1304,6 +1307,7 @@ function render(){
   if(UI.tab==="dash") drawBars("barsDash");
   if(UI.tab==="saisie"){ bindSaisie(); espSync(); espCalc(true); catHint(); }
   if(UI.tab==="tx") renderTxList();
+  if(UI.tab==="avenir") bindAvenir();
   if(UI.tab==="compteur") recalcCaisse();
   if(UI.tab==="ia") drawNet("netBars");
   majBqDots();
@@ -1381,8 +1385,9 @@ function viewDash(){
     ${parBanque}
     ${caches.length?`<div class="muted" style="font-size:11.5px;margin-top:9px">🚫 Masqué${caches.length>1?"s":""} : ${caches.map(a=>a.emoji+" "+escH(a.name)+bqPoint(a)).join(", ")} — ✏️ Organiser pour ${caches.length>1?"les":"le"} réafficher.</div>`:""}`}
     <div class="muted" style="font-size:12px;margin-top:10px">💡 Première utilisation : recale chaque compte sur ton solde réel dans Réglages (1 clic par compte).</div>
-    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="go('rapport')">📋 Mon rapport mensuel</button><button class="btn ghost sm" onclick="go('objectifs')">🎯 Mes projets</button><button class="btn ghost sm" onclick="openCompteur()">🧮 Compter mes espèces</button><button class="btn ghost sm" onclick="go('reglages')">Recaler mes soldes →</button></div></div>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="go('rapport')">📋 Mon rapport mensuel</button><button class="btn ghost sm" onclick="go('objectifs')">🎯 Mes projets</button><button class="btn ghost sm" onclick="ouvrirDettes()">🤝 Mes dettes</button><button class="btn ghost sm" onclick="openCompteur()">🧮 Compter mes espèces</button><button class="btn ghost sm" onclick="go('reglages')">Recaler mes soldes →</button></div></div>
   ${caisseRappel}
+  ${dettesResumeHTML()}
   ${objSummary}
   ${cryptoSummary}
   ${soon}
@@ -1597,6 +1602,7 @@ function viewSaisie(){
       <button id="sEnt" class="${t==='ent'?'on-ent':''}" onclick="setType('ent')">↑ Entrée</button>
       <button id="sTr" class="${t==='tr'?'on-tr':''}" onclick="setType('tr')">⇄ Transfert</button>
     </div>
+    ${e.dette&&detteDe(e.dette)?`<div class="muted" style="font-size:12px;margin:-4px 0 12px">🔗 Rattachée à ${detteDe(e.dette).genre==="auto"?"l'autocrédit":detteDe(e.dette).genre==="pret"?"le prêt":"la dette"} « <b>${escH(detteNom(detteDe(e.dette)))}</b> ».</div>`:""}
     ${body}
     <button class="btn" onclick="saveTx()">${editing?"💾 Enregistrer":"✅ Ajouter"}</button>
     ${editing?`<button class="btn ghost" onclick="go(UI.retour||'tx')" style="margin-top:8px">Annuler</button>`:""}
@@ -1727,6 +1733,7 @@ function saveTx(){
   if(!mont||mont<=0){ toast("Indique un montant 🙏"); return; }
   const date=document.getElementById("fDate").value;
   const eid=(UI.edit&&UI.edit.id)?UI.edit.id:null;
+  const dt=(UI.edit&&UI.edit.dette)||"";   /* opération rattachée à une dette ou un autocrédit : le lien suit */
   /* le détail affiché fait foi (vide = pas de détail → recomptage) ; s'il ne colle pas au montant, on n'enregistre pas */
   const espX=readEsp();
   if(espX){ const tot=espTotal(espX); if(Math.abs(tot-Math.abs(mont))>0.005){ toast("Le détail compté ("+eur(tot)+") ne correspond pas au montant ("+eur(Math.abs(mont))+"). Corrige l'un des deux, ou vide les cases pour recompter après."); return; } }
@@ -1735,14 +1742,16 @@ function saveTx(){
     if(from===to){ toast("Choisis deux comptes différents"); return; }
     const obj={id:eid||uid(),type:"transfer",date,montant:Math.abs(mont),from,to,note:document.getElementById("fNote").value.trim(),observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():"")};
     if(espX) obj.esp=espX;
-    commit(obj,eid,eid?UI.retour:null); return;
+    if(dt) obj.dette=dt;
+    commit(obj,eid,eid?UI.retour:(dt?"avenir":null)); return;
   }
   const espE=espX;
   const obj={ id:eid||uid(), date, montant:(UI.type==="dep"?-1:1)*Math.abs(mont), esp:espE||undefined,
     note:document.getElementById("fNote").value.trim(), categorie:document.getElementById("fCat").value,
     sousCategorie:(document.getElementById("fSub").value==="__new__"?"":document.getElementById("fSub").value), compte:document.getElementById("fCompte").value,
     moyen:document.getElementById("fMoyen").value, observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():""), periode:(UI.edit&&UI.edit.periode)||"" };
-  commit(obj,eid,eid?UI.retour:null);
+  if(dt) obj.dette=dt;
+  commit(obj,eid,eid?UI.retour:(dt?"avenir":null));
 }
 function isCashAcct(id){ const a=acct(id); return !!(a&&a.type==="cash"); }
 /* comptes espèces touchés par une opération, avec le sens : {id: montant signé} */
@@ -1914,7 +1923,7 @@ function fitemHTML(f,today){
   const amtCls=isTr?"":(dep?"neg":"pos"), amtPre=isTr?"⇄ ":(dep?"":"+");
   const ligne2=isTr?`${acctHTML(f.from)} → ${acctHTML(f.to)}`:`${f.categorie||'—'}${f.sousCategorie?' / '+f.sousCategorie:''} · ${acctHTML(f.compte)}`;
   return `<div class="fitem"><div class="em" style="font-size:20px">${f.statut==="payé"?"✅":f.statut==="annulé"?"🚫":late?"⏰":"📌"}</div>
-    <div class="fi"><div class="ft1">${f.nom} <span class="amt ${amtCls}">${amtPre}${eur(f.montant)}</span></div>
+    <div class="fi"><div class="ft1">${escH(f.nom)}${f.dette&&detteDe(f.dette)?' <span class="etq">🤝 dette</span>':""} <span class="amt ${amtCls}">${amtPre}${eur(f.montant)}</span></div>
       <div class="ft2">${frDate(f.date)} · ${ligne2}${fl?' · '+fl:''}</div></div>
     <span class="chip ${f.statut==='payé'?'paye':f.statut==='annulé'?'annule':late?'retard':'prevu'}">${late&&f.statut==='prévu'?'en retard':f.statut}</span>
     <div style="display:flex;gap:4px">
@@ -1926,34 +1935,61 @@ function fitemHTML(f,today){
       <button class="del" title="Supprimer cette échéance" onclick="futureDelete('${f.id}')">🗑️</button></div></div>
     ${UI.serieOpen===f.id?seriePanelHTML(f):""}`;
 }
-/* Une échéance réglée ou annulée quitte « À venir » pour l'historique : la liste du haut ne garde
-   que ce qui reste à payer. L'historique est replié (le pli est retenu par appareil) et rangé par mois,
-   du plus récent au plus ancien. */
+/* « À venir » a deux sous-onglets : 📌 Paiements (les échéances) et 🤝 Dettes (autocrédits, argent à rendre, argent donné) */
+function setAvTab(t){ UI.avTab=t; UI.detteEdit=null; UI.serieOpen=null; render(); window.scrollTo(0,0); }
+function ouvrirDettes(){ go("avenir"); UI.avTab="dettes"; render(); }
 function viewAvenir(){
-  const today=todayISO();
+  const dt=UI.avTab==="dettes", nb=dettesActives().length;
+  return `<div class="pagehead">📅 À venir</div>
+  <div class="soustabs"><button class="${dt?'':'on'}" onclick="setAvTab('paiements')"><span class="ic">📌</span>Paiements</button>
+    <button class="${dt?'on':''}" onclick="setAvTab('dettes')"><span class="ic">🤝</span>Dettes${nb?` (${nb})`:""}</button></div>`+(dt?viewDettes():viewPaiements());
+}
+/* le même jour, n mois plus tard (ou plus tôt), sans sortir du mois : 31 janvier + 1 mois = 28 février */
+function moisPlus(iso,n){ const p=(iso||todayISO()).split("-").map(Number), d=new Date(p[0],p[1]-1+n,1), dim=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(Math.min(p[2],dim)).padStart(2,"0"); }
+/* Une échéance réglée ou annulée quitte « À payer » pour l'historique : la liste du haut ne garde
+   que ce qui reste à payer, rangé par mois (les retards d'abord). L'historique est replié (le pli est
+   retenu par appareil) et rangé par mois, du plus récent au plus ancien. */
+function viewPaiements(){
+  const today=todayISO(), r2=x=>Math.round(x*100)/100;
   const fini=(f)=>f.statut==="payé"||f.statut==="annulé";
   const aVenir=DB.future.filter(f=>!fini(f)).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
   const passes=DB.future.filter(fini).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  const items=aVenir.length?aVenir.map(f=>fitemHTML(f,today)).join("")
-    :`<div class="empty">Rien à payer pour l'instant 🎉${passes.length?"<br>Ce qui est réglé est rangé dans l'historique, juste en dessous.":" Ajoute un paiement ci-dessous 👇"}</div>`;
+  const som=L=>r2(L.filter(f=>f.type!=="transfer"&&f.montant<0).reduce((a,f)=>a+Math.abs(f.montant),0));   /* ce qui sort vraiment : ni virement entre comptes, ni revenu */
+  const groupe=f=>(f.date||"")<today?"retard":(f.date||"").slice(0,7);
+  const nomMois=k=>moisMaj(+k.slice(5,7)-1)+" "+k.slice(0,4);
+  const ym=today.slice(0,7), ymS=moisPlus(ym+"-01",1).slice(0,7);
+  const G=k=>aVenir.filter(f=>groupe(f)===k);
+  let items="", cur=null;
+  aVenir.forEach(f=>{ const k=groupe(f);
+    if(k!==cur){ cur=k; const L=G(k), t=som(L);
+      items+=`<div class="mois-sep"><span>${k==="retard"?"⏰ En retard":nomMois(k)}</span><span>${L.length} · ${t?"−"+eur(t):"—"}</span></div>`; }
+    items+=fitemHTML(f,today); });
+  if(!aVenir.length) items=`<div class="empty">Rien à payer pour l'instant 🎉${passes.length?"<br>Ce qui est réglé est rangé dans l'historique, juste en dessous.":" Ajoute un paiement ci-dessous 👇"}</div>`;
+  const lignes=[];
+  if(G("retard").length) lignes.push(["⏰ En retard",`<span class="neg">−${eur(som(G("retard")))}</span>`]);
+  const moins=v=>(v>0.005?"−":"")+eur(v);
+  lignes.push(["Reste à payer en "+MONTHS[+ym.slice(5,7)-1],moins(som(G(ym)))],["En "+MONTHS[+ymS.slice(5,7)-1],moins(som(G(ymS)))],["Tout ce qui est prévu",moins(som(aVenir))]);
+  const recap=aVenir.length?`<div class="card"><h2>🧾 En un coup d'œil</h2>${resume(lignes)}
+    <div class="muted" style="font-size:11.5px">Seulement ce qui sort : les virements ⇄ entre tes comptes et les revenus prévus ne sont pas dans ces totaux.</div></div>`:"";
   let histo="";
   if(passes.length){
     const nbPaye=passes.filter(f=>f.statut==="payé").length;
     const totPaye=passes.filter(f=>f.statut==="payé"&&f.montant<0).reduce((a,f)=>a+Math.abs(f.montant),0);
-    let corps="", cur="";
+    let corps="", c2="";
     passes.forEach(f=>{ const am=(f.date||"").slice(0,7);   /* « 2026-10 » : deux octobres d'années différentes restent séparés */
-      if(am!==cur){ cur=am;
+      if(am!==c2){ c2=am;
         const m=passes.filter(x=>(x.date||"").slice(0,7)===am&&x.statut==="payé"&&x.montant<0).reduce((a,x)=>a+Math.abs(x.montant),0);
         corps+=`<div class="mois-sep"><span>${moisMaj(monthOf(f.date))} ${am.slice(0,4)}</span><span>${m?"−"+eur(m):""}</span></div>`; }
       corps+=fitemHTML(f,today); });
     const tete=`<span class="tot"><span>🗂️ Historique <span class="muted" style="font-weight:600">— déjà réglés ou annulés</span></span><span>${passes.length} · ${nbPaye?"−"+eur(totPaye):"—"}</span></span>`;
     histo=`<div class="card">${pli("avenir-histo",tete,corps)}
-      <div class="muted" style="font-size:11.5px;margin-top:8px">↩️ remet une échéance dans « À venir » si elle y a été rangée par erreur. L'opération déjà enregistrée, elle, reste dans Opérations.</div></div>`;
+      <div class="muted" style="font-size:11.5px;margin-top:8px">↩️ remet une échéance dans « À payer » si elle y a été rangée par erreur. L'opération déjà enregistrée, elle, reste dans Opérations.</div></div>`;
   }
   const t=FNEW.type;
   /* Les listes d'abord : on ouvre cette page pour voir ce qu'il reste à payer, pas pour saisir.
      Le formulaire est en dessous (« Ajoute un paiement ci-dessous 👇 » du message vide y renvoie). */
-  return `<div class="pagehead">📅 Paiements à venir</div>
+  return `${recap}
   <div class="card"><h2>📌 À payer <span class="tag">${aVenir.length}</span></h2>
     ${aVenir.some(f=>isSerie(f))?`<div class="muted" style="font-size:11.5px;margin-bottom:10px">🔁 Un prélèvement change de montant ? Clique le bouton <b>🔁</b> de n'importe laquelle de ses échéances : tu modifies ou supprimes <b>toutes les suivantes d'un seul coup</b>.</div>`:""}
     <div>${items}</div></div>
@@ -1962,8 +1998,10 @@ function viewAvenir(){
     <div class="seg"><button class="${t==='dep'?'on-dep':''}" onclick="FNEW.type='dep';render()">↓ Dépense</button>
       <button class="${t==='ent'?'on-ent':''}" onclick="FNEW.type='ent';render()">↑ Revenu</button>
       <button class="${t==='tr'?'on-tr':''}" onclick="FNEW.type='tr';render()">⇄ Transfert</button></div>
-    <div class="row2"><div class="field"><label>Nom</label><input id="fuNom" placeholder="Ex : Assurance vie, Netflix, Loyer…"></div>
+    <div class="row2"><div class="field libwrap"><label>Nom</label><input id="fuNom" autocomplete="off" placeholder="Ex : Assurance vie, Netflix, Loyer…">
+        <div class="libdrop" id="fuDrop"></div></div>
       <div class="field"><label>1ʳᵉ échéance (date)</label><input id="fuDate" type="date" value="${todayISO()}"></div></div>
+    <div class="muted" style="font-size:11.5px;margin:-6px 0 12px">📋 Touche le champ <b>Nom</b> : la liste des noms que tu as déjà utilisés s'ouvre. Choisis-en un plutôt que de le retaper, il reprend la même catégorie et reste rangé avec les autres.</div>
     ${t==='tr'?`
       <div class="field"><label>Montant par échéance (€)</label><input id="fuMontant" type="number" inputmode="decimal" step="0.01" placeholder="0,00"></div>
       <div class="row2"><div class="field"><label>Du compte</label>${selBq(`<select id="fuFrom">${acctOptions('cc')}</select>`)}</div>
@@ -2026,6 +2064,7 @@ function futurePay(id,dest){ const f=DB.future.find(x=>x.id===id); if(!f)return;
   const obj = f.type==="transfer"
     ? {id:uid(),type:"transfer",date:f.date,montant:Math.abs(f.montant),from:f.from,to:f.to,note:f.nom}
     : {id:uid(),date:f.date,montant:f.montant,categorie:f.categorie,sousCategorie:f.sousCategorie||"",compte:f.compte,moyen:f.montant<0?"PL":"VIR",note:f.nom,observation:"",periode:""};
+  if(f.dette) obj.dette=f.dette;   /* mensualité d'une dette : l'opération la rembourse */
   commit(obj,null,dest);
 }
 async function futureEdit(id){ const f=DB.future.find(x=>x.id===id); if(!f)return;
@@ -2102,6 +2141,263 @@ function seriePanelHTML(f){
     <button class="btn ghost sm" style="width:100%;margin-top:9px" onclick="serieToggle('${f.id}')">Fermer</button>
   </div>`;
 }
+
+/* ---------- La liste des noms déjà utilisés, sous un champ (même menu que le libellé de la Saisie) ---------- */
+function lierDrop(inputId,dropId,liste,choisir){
+  const inp=document.getElementById(inputId), drop=document.getElementById(dropId); if(!inp||!drop) return;
+  const show=()=>{ const q=inp.value.trim().toLowerCase();
+    const items=liste().filter(p=>{ const t=p.txt.toLowerCase(); return q?(t.includes(q)&&t!==q):true; }).slice(0,40);
+    if(!items.length){ drop.classList.remove("show"); drop.innerHTML=""; return; }
+    drop.innerHTML=items.map((p,i)=>`<div class="it" data-i="${i}">${escH(p.txt)}<span class="c">${p.info||""}</span></div>`).join("");
+    drop.classList.add("show");
+    drop.querySelectorAll(".it").forEach(el=>el.addEventListener("mousedown",ev=>{ ev.preventDefault();
+      const p=items[+el.dataset.i]; inp.value=p.txt; drop.classList.remove("show"); if(choisir) choisir(p); }));
+  };
+  inp.addEventListener("input",show); inp.addEventListener("focus",show);
+  inp.addEventListener("blur",()=>setTimeout(()=>drop.classList.remove("show"),150));
+}
+/* les noms connus pour un paiement à venir : d'abord ceux des paiements déjà prévus (📅, avec leur catégorie,
+   leur compte et leur montant), puis les libellés de mes opérations. Un nom = une ligne, sans son « (3/12) ». */
+function avenirNoms(type){ const map=new Map(), tr=type==="tr";
+  DB.future.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||"")).forEach(f=>{ if(f.dette) return;
+    if((f.type==="transfer"?"tr":(f.montant<0?"dep":"ent"))!==type) return;
+    const txt=String(f.nom||"").trim().replace(/\s*\(\d+\/\d+\)$/,""); if(!txt) return;
+    const k=cleLib(txt), e=map.get(k)||{txt,n:0}; e.n++; e.f=f; map.set(k,e); });
+  const L=[...map.values()].sort((a,b)=>b.n-a.n||a.txt.localeCompare(b.txt));
+  L.forEach(e=>{ const f=e.f; e.info="📅 "+(tr?escH(acctName(f.from)+" → "+acctName(f.to)):escH((f.categorie||"—")+(f.sousCategorie?" / "+f.sousCategorie:"")))+" · "+eur(Math.abs(f.montant)); });
+  (tr?libPoolTr():libPool()).sort((a,b)=>(b.star-a.star)||(b.n-a.n)||a.txt.localeCompare(b.txt)).forEach(p=>{ const k=cleLib(p.txt); if(map.has(k)) return; map.set(k,1);
+    L.push({txt:p.txt,p,info:tr?escH(acctName(p.from)+" → "+acctName(p.to)):escH((p.cat||"")+(p.sub?" / "+p.sub:""))}); });
+  return L; }
+/* un nom choisi dans la liste : on remet la catégorie, le compte et (s'il est vide) le montant de la dernière fois */
+function avenirChoisir(p){
+  const sel=(id,v)=>{ const el=document.getElementById(id); if(el&&v&&[...el.options].some(o=>o.value===v)){ el.value=v; return true; } return false; };
+  const cat=(c,s)=>{ const sb=document.getElementById("fuSub"); if(sel("fuCat",c)&&sb) sb.innerHTML=subOptions(c,s||""); };
+  if(p.f){ const f=p.f, m=document.getElementById("fuMontant"); if(m&&!m.value) m.value=Math.abs(f.montant);
+    if(f.type==="transfer"){ sel("fuFrom",f.from); sel("fuTo",f.to); } else { cat(f.categorie,f.sousCategorie); sel("fuCompte",f.compte); } }
+  else if(p.p){ if(FNEW.type==="tr"){ sel("fuFrom",p.p.from); sel("fuTo",p.p.to); } else cat(p.p.cat,p.p.sub); }
+  majBqDots();
+}
+function bindAvenir(){
+  lierDrop("fuNom","fuDrop",()=>avenirNoms(FNEW.type),avenirChoisir);
+  lierDrop("dtPers","dtDrop",()=>personnesArgent().map(n=>({txt:n})));
+}
+
+/* ===================== DETTES & AUTOCRÉDITS (À venir → 🤝 Dettes) =====================
+   DB.dettes = [{id, genre, nom, montant, date, echeance, compte | personne}]
+     genre "auto" = autocrédit : je pioche dans un compte d'épargne (compte) et je me rembourse, sans intérêt ;
+     genre "dois" = quelqu'un (personne) m'a avancé de l'argent que je dois rendre ;
+     genre "pret" = j'ai prêté de l'argent à quelqu'un (personne), qui doit me le rendre.
+   Le remboursement n'est PAS stocké dans la dette : c'est la somme des opérations qui portent son id
+   (t.dette) — un virement vers le compte d'épargne, ou une sortie d'Argent vers la personne. Supprimer ou
+   corriger une opération met donc la dette à jour toute seule. L'argent reçu d'une personne sans être
+   rattaché à une dette = un don, rien à rendre. */
+let DNEW={genre:"auto"};
+function detteDe(id){ return (DB.dettes||[]).find(d=>d.id===id)||null; }
+function detteNom(d){ return d.nom||(d.genre==="auto"?"Autocrédit":(d.genre==="pret"?"Prêt à ":"Prêt de ")+(d.personne||"quelqu'un")); }
+function catArgent(){ const L=activeCats().filter(c=>genreDe(c)==="argent"); return L.find(c=>c.name==="Argent")||L[0]||null; }
+function personnesArgent(){ const vus={}, L=[];
+  DB.categories.filter(c=>genreDe(c)==="argent").forEach(c=>(c.subs||[]).forEach(s=>{ const k=String(s).toLowerCase(); if(s&&!vus[k]){ vus[k]=1; L.push(s); } }));
+  return L; }
+/* une opération rattachée rembourse-t-elle la dette ? (sinon c'est l'emprunt lui-même) */
+function estRembDette(d,t){ return d.genre==="auto"?(t.type==="transfer"&&t.to===d.compte):(t.type!=="transfer"&&(d.genre==="pret"?t.montant>0:t.montant<0)); }
+/* les mensualités qui restent : l'échéance, un mois avant, deux mois avant… tant que c'est après aujourd'hui
+   (ou après le dernier remboursement, quand une mensualité a été réglée en avance) */
+function detteEcheances(d,depuis){ const L=[], ref=depuis&&depuis>todayISO()?depuis:todayISO(); if(!d.echeance) return L;
+  for(let k=0;k<240;k++){ const x=moisPlus(d.echeance,-k); if(x<=ref) break; L.unshift(x); }
+  return L; }
+function detteEtat(d){ const r2=x=>Math.round(x*100)/100;
+  const ops=DB.transactions.filter(t=>t.dette===d.id).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const rendu=r2(ops.filter(t=>estRembDette(d,t)).reduce((a,t)=>a+Math.abs(t.montant),0)), reste=r2(Math.max(0,(d.montant||0)-rendu));
+  const dernier=ops.filter(t=>estRembDette(d,t)).map(t=>t.date||"").sort().pop();
+  const solde=reste<0.005, ech=detteEcheances(d,dernier), nb=Math.max(1,ech.length);
+  const prevus=DB.future.filter(f=>f.dette===d.id&&f.statut==="prévu").sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  return {ops,rendu,reste,solde,ech,nb,prevus,retard:!solde&&!!d.echeance&&d.echeance<todayISO(),parMois:(!solde&&d.echeance)?r2(reste/nb):0}; }
+function dettesActives(){ return (DB.dettes||[]).filter(d=>!detteEtat(d).solde); }
+/* l'objectif d'épargne du mois fixé pour ce compte (Budget → 🐷 Épargne) : il s'ajoute au remboursement */
+function objEpargne(acctId){ return Math.round(((DB.paye&&DB.paye.lines)||[]).filter(l=>l.acct===acctId).reduce((a,l)=>a+payeAmt(l),0)*100)/100; }
+/* tableau de bord : ce qu'il reste à rembourser, d'un coup d'œil */
+function dettesResumeHTML(){ const L=dettesActives(); if(!L.length) return "";
+  const du=L.filter(d=>d.genre!=="pret").map(detteEtat), pr=L.filter(d=>d.genre==="pret").map(detteEtat), som=(E,k)=>E.reduce((a,e)=>a+e[k],0);
+  const mens=som(du,"parMois"), retard=du.concat(pr).filter(e=>e.retard).length, lignes=[];
+  if(du.length) lignes.push(["Reste à rembourser",`<span class="neg">${eur(som(du,"reste"))}</span>`]);
+  if(mens>0.005) lignes.push(["📆 À mettre par mois",eur(mens)]);
+  if(pr.length) lignes.push(["🫴 On me doit",`<span class="pos">${eur(som(pr,"reste"))}</span>`]);
+  if(retard) lignes.push(["⏰ Échéance dépassée",String(retard)]);
+  return `<div class="card"><h2>🤝 Dettes &amp; autocrédits <span class="tag">${L.length}</span></h2>
+    ${resume(lignes)}
+    <div style="margin-top:8px"><button class="btn ghost sm" onclick="ouvrirDettes()">Voir le détail →</button></div></div>`; }
+
+function detteOpLigne(d,t,lie){ const remb=estRembDette(d,t);
+  return `<div class="lg"><div class="g"><b>${frDateJ(t.date)}</b> · ${remb?"↩️ remboursement":d.genre==="pret"?"💸 prêt":"💸 emprunt"}${t.note?" · "+escH(t.note):""}
+      <div class="muted" style="font-size:11px">${t.type==="transfer"?acctHTML(t.from)+" → "+acctHTML(t.to):acctHTML(resolveAccount(t))}</div></div>
+    <div class="d"><b class="${remb?"pos":""}">${eur(Math.abs(t.montant))}</b>${lie
+      ?`<button class="ed" title="Modifier cette opération" onclick="editTx('${t.id}')">✏️</button><button class="ed" title="Détacher : l'opération reste, mais ne compte plus pour cette dette" onclick="detteDetacher('${t.id}')">✂️</button>`
+      :`<button class="btn ghost sm" style="width:auto;padding:3px 9px;margin-left:6px;font-size:12px" onclick="detteRattacher('${d.id}','${t.id}')">🔗 Rattacher</button>`}</div></div>`; }
+/* remboursements déjà saisis mais pas rattachés : un virement vers le compte d'épargne, une sortie d'Argent vers la personne */
+function detteCandidats(d){ const libre=t=>!(t.dette&&detteDe(t.dette))&&(t.date||"")>=(d.date||"");
+  const L=d.genre==="auto"?DB.transactions.filter(t=>t.type==="transfer"&&t.to===d.compte&&libre(t))
+    :DB.transactions.filter(t=>isArgentTx(t)&&(d.genre==="pret"?t.montant>0:t.montant<0)&&libre(t)&&(t.sousCategorie||"").trim().toLowerCase()===(d.personne||"").trim().toLowerCase());
+  return L.sort((a,b)=>(b.date||"").localeCompare(a.date||"")); }
+function detteHTML(d,e){ const auto=d.genre==="auto", pret=d.genre==="pret", pct=d.montant>0?Math.min(100,e.rendu/d.montant*100):0, s=n=>n>1?"s":"";
+  const quand=e.solde?`<span class="pos">✅ remboursé</span>`:!d.echeance?"sans échéance":e.retard?`<span class="chip retard">échéance dépassée · ${frDate(d.echeance)}</span>`:`à ${pret?"me ":""}rendre avant le <b>${frDate(d.echeance)}</b>`;
+  let plan="";
+  if(!e.solde){
+    if(!d.echeance) plan=`<div class="muted" style="font-size:12px;margin-top:6px">📆 Donne-lui une échéance (✏️) pour savoir combien ${pret?"on doit te rendre":"mettre"} chaque mois.</div>`;
+    else if(!e.ech.length) plan=`<div style="font-size:13px;margin-top:6px">📆 <b>${eur(e.reste)}</b> à ${pret?"récupérer":"rendre"} ${d.echeance>todayISO()?"d'ici le "+frDate(d.echeance):"maintenant"}.</div>`;
+    else plan=`<div style="font-size:13px;margin-top:6px">📆 <b>${eur(e.parMois)}</b> par mois pendant <b>${e.nb}</b> mois <span class="muted">· ${e.nb>1?"du "+frDate(e.ech[0])+" au "+frDate(d.echeance):"le "+frDate(d.echeance)}</span></div>`;
+    if(e.prevus.length) plan+=`<div class="muted" style="font-size:12px;margin-top:3px">📅 ${e.prevus.length} mensualité${s(e.prevus.length)} déjà prévue${s(e.prevus.length)} dans Paiements (${eur(e.prevus.reduce((a,f)=>a+Math.abs(f.montant),0))}) · la prochaine le ${frDate(e.prevus[0].date)} : ${eur(Math.abs(e.prevus[0].montant))}</div>`;
+  }
+  const cand=e.solde?[]:detteCandidats(d);
+  const b=(txt,fn,style)=>`<button class="btn ghost sm" style="width:auto;padding:7px 12px;${style||""}" onclick="${fn}('${d.id}')">${txt}</button>`;
+  return `<div class="dette">
+    <div class="dt1"><span>${auto?"🐷":pret?"🫴":"👤"} <b>${escH(detteNom(d))}</b></span><b class="${e.solde||pret?"pos":"neg"}">${e.solde?"✅":eur(e.reste)}</b></div>
+    <div class="muted" style="font-size:12px">${eur(d.montant)} ${auto?"pris sur "+acctHTML(d.compte):(pret?"prêtés à <b>":"avancés par <b>")+escH(d.personne||"—")+"</b>"} le ${frDate(d.date)} · ${quand}</div>
+    <div class="track" style="margin-top:7px"><div class="fill" style="width:${pct}%;background:${e.solde?"var(--pos)":"var(--accent)"}"></div></div>
+    <div class="muted" style="font-size:11.5px;margin-top:3px">déjà ${pret?"rendu":"remboursé"} <b>${eur(e.rendu)}</b> sur ${eur(d.montant)}${e.solde?"":` · reste <b>${eur(e.reste)}</b>`}</div>
+    ${plan}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px">
+      ${e.solde?"":b(pret?"↩️ On m'a rendu":"↩️ Rembourser","detteRembourser")}
+      ${!e.solde&&e.ech.length&&!e.prevus.length?b("📅 Prévoir les mensualités","dettePlanifier"):""}
+      ${!e.solde&&e.prevus.length&&Math.abs(e.prevus.reduce((a,f)=>a+Math.abs(f.montant),0)-e.reste)>0.005?b("🔄 Recalculer les mensualités","detteRecaler"):""}
+      ${b("✏️","detteModifier")}${b("🗑️","detteSuppr","color:var(--neg)")}</div>
+    ${e.ops.length||cand.length?pli("dette:"+d.id,`<span class="tot"><span>📋 Opérations</span><span class="muted" style="font-size:12px">${e.ops.length} rattachée${s(e.ops.length)}${cand.length?" · "+cand.length+" à rattacher ?":""}</span></span>`,
+      e.ops.map(t=>detteOpLigne(d,t,true)).join("")
+      +(cand.length?`<div class="muted" style="font-size:11.5px;margin:8px 0 2px">Déjà saisi${s(cand.length)}, peut-être un remboursement de cette dette :</div>`+cand.map(t=>detteOpLigne(d,t,false)).join(""):""),"sous"):""}
+  </div>`; }
+function viewDettes(){
+  const r2=x=>Math.round(x*100)/100, L=DB.dettes||[], E={}; L.forEach(d=>E[d.id]=detteEtat(d));
+  const tri=(a,b)=>(a.echeance||"9999").localeCompare(b.echeance||"9999")||(a.date||"").localeCompare(b.date||"");
+  const act=L.filter(d=>!E[d.id].solde).sort(tri), finies=L.filter(d=>E[d.id].solde).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const auto=act.filter(d=>d.genre==="auto"), dois=act.filter(d=>d.genre==="dois"), prets=act.filter(d=>d.genre==="pret"), du=auto.concat(dois);
+  const reste=G=>r2(G.reduce((a,d)=>a+E[d.id].reste,0)), mens=G=>r2(G.reduce((a,d)=>a+E[d.id].parMois,0));
+  const sansEch=du.filter(d=>!d.echeance).length, bal=computeBalances();
+  const recap=`<div class="card"><h2>🧾 Ce que je dois rembourser</h2>
+    ${act.length?resume([["Reste à rembourser en tout",`<span class="neg">${eur(reste(du))}</span>`],["🐷 À moi-même (autocrédits)",eur(reste(auto))],["👤 À d'autres personnes",eur(reste(dois))],["📆 À mettre par mois",eur(mens(du))]].concat(prets.length?[["🫴 On me doit",`<span class="pos">${eur(reste(prets))}</span>`]]:[]))
+      +(sansEch?`<div class="muted" style="font-size:11.5px">${sansEch} sans échéance : pas comptée${sansEch>1?"s":""} dans « par mois ».</div>`:"")
+      :`<div class="muted" style="font-size:12.5px">Tu ne dois rien pour l'instant 🎉 Note ci-dessous un autocrédit (de l'argent pris sur ton épargne, que tu te rembourses) ou de l'argent qu'on t'a avancé.</div>`}</div>`;
+  /* 🐷 autocrédits, compte d'épargne par compte : le remboursement s'ajoute à l'épargne du mois */
+  const retraits=DB.transactions.filter(t=>t.type==="transfer"&&isSavings(t.from)&&isLiquid(t.to)&&!(t.dette&&detteDe(t.dette))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const parCompte=[...new Set(auto.map(d=>d.compte))].map(c=>{ const G=auto.filter(d=>d.compte===c), rb=mens(G), ep=objEpargne(c), rs=reste(G), sol=bal[c]||0;
+    return G.map(d=>detteHTML(d,E[d.id])).join("")+`<div class="insight" style="margin:10px 0 4px"><div class="em">🐷</div><div class="it" style="font-size:13px">
+      ${rb>0.005?`Chaque mois vers ${acctHTML(c)} : <b>${eur(rb)}</b> de remboursement ${ep>0?`+ <b>${eur(ep)}</b> d'épargne du mois = <b>${eur(rb+ep)}</b>`:`<span class="muted">(pas d'objectif d'épargne du mois sur ce compte : Budget → 🐷 Épargne)</span>`}.<br>`:""}
+      <span class="muted" style="font-size:12px">${acctHTML(c)} aujourd'hui : <b>${eur(sol)}</b> · une fois tout remboursé : <b>${eur(sol+rs)}</b></span></div></div>`; }).join("");
+  const autoCard=`<div class="card"><h2>🐷 Mes autocrédits <span class="tag">${auto.length}</span></h2>
+    <div class="muted" style="font-size:12px;margin-bottom:4px">L'argent que tu prends sur ton épargne quand il t'en manque, et que tu te rembourses sans intérêt, <b>en plus</b> de ton épargne du mois.</div>
+    ${parCompte||`<div class="muted" style="font-size:12.5px;padding:8px 0">Aucun autocrédit en cours.</div>`}
+    ${retraits.length?pli("dettes:retraits",`<span class="tot"><span>🔎 Retraits d'épargne déjà saisis</span><span class="muted" style="font-size:12px">${retraits.length}</span></span>`,
+      `<div class="muted" style="font-size:11.5px;margin-bottom:2px">L'un d'eux est un autocrédit à te rembourser ? Touche « 🐷 Autocrédit ».</div>`
+      +retraits.slice(0,30).map(t=>`<div class="lg"><div class="g"><b>${frDateJ(t.date)}</b>${t.note?" · "+escH(t.note):""}<div class="muted" style="font-size:11px">${acctHTML(t.from)} → ${acctHTML(t.to)}</div></div>
+        <div class="d"><b>${eur(t.montant)}</b><button class="btn ghost sm" style="width:auto;padding:3px 9px;margin-left:6px;font-size:12px" onclick="detteDepuisOp('${t.id}')">🐷 Autocrédit</button></div></div>`).join("")):""}
+  </div>`;
+  const doisCard=`<div class="card"><h2>👤 Ce que je dois à d'autres <span class="tag">${dois.length}</span></h2>
+    ${dois.map(d=>detteHTML(d,E[d.id])).join("")||`<div class="muted" style="font-size:12.5px;padding:8px 0">Tu ne dois rien à personne.</div>`}</div>`;
+  /* 🫴 ce que j'ai prêté et qu'on doit me rendre ; les sorties d'Argent déjà saisies peuvent le devenir */
+  const sorties=DB.transactions.filter(t=>isArgentTx(t)&&t.montant<0&&!(t.dette&&detteDe(t.dette))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const pretsCard=`<div class="card"><h2>🫴 On me doit <span class="tag">${prets.length}</span></h2>
+    <div class="muted" style="font-size:12px;margin-bottom:4px">L'argent que tu as prêté et qu'on doit te rendre.</div>
+    ${prets.length?resume([["Reste à récupérer",`<span class="pos">${eur(reste(prets))}</span>`]].concat(mens(prets)>0.005?[["📆 À recevoir par mois",eur(mens(prets))]]:[]))+prets.map(d=>detteHTML(d,E[d.id])).join(""):`<div class="muted" style="font-size:12.5px;padding:8px 0">Personne ne te doit rien.</div>`}
+    ${sorties.length?pli("dettes:sorties",`<span class="tot"><span>🔎 Argent donné ou prêté déjà saisi</span><span class="muted" style="font-size:12px">${sorties.length}</span></span>`,
+      `<div class="muted" style="font-size:11.5px;margin-bottom:2px">L'un d'eux est un prêt qu'on doit te rendre ? Touche « 🫴 À me rendre ».</div>`
+      +sorties.slice(0,30).map(t=>`<div class="lg"><div class="g"><b>${frDateJ(t.date)}</b>${t.sousCategorie?" · 👤 "+escH(t.sousCategorie):""}${t.note?" · "+escH(t.note):""}<div class="muted" style="font-size:11px">${acctHTML(resolveAccount(t))}</div></div>
+        <div class="d"><b>${eur(Math.abs(t.montant))}</b><button class="btn ghost sm" style="width:auto;padding:3px 9px;margin-left:6px;font-size:12px" onclick="detteDepuisOp('${t.id}')">🫴 À me rendre</button></div></div>`).join("")):""}
+  </div>`;
+  /* 🎁 l'argent reçu qui n'est rattaché à aucune dette : un don, rien à rendre */
+  const dons=DB.transactions.filter(t=>isArgentTx(t)&&t.montant>0&&!(t.dette&&detteDe(t.dette))), parP={};
+  dons.forEach(t=>{ const p=(t.sousCategorie||"").trim(), k=p.toLowerCase(), g=parP[k]||(parP[k]={nom:p,tot:0,ops:[]}); g.tot+=t.montant; g.ops.push(t); });
+  const gens=Object.values(parP).sort((a,b)=>b.tot-a.tot);
+  const donsCard=`<div class="card"><h2>🎁 Reçu sans avoir à rendre</h2>
+    <div class="muted" style="font-size:12px;margin-bottom:6px">L'argent qu'on t'a donné (catégorie 🤝 Argent). Si en fait tu dois le rendre, ouvre la personne et touche « 🤝 À rendre » : il passe dans tes dettes.</div>
+    ${gens.length?resume([["Total reçu en don",`<span class="pos">+${eur(dons.reduce((a,t)=>a+t.montant,0))}</span>`]])+gens.map(g=>pli("don:"+g.nom.toLowerCase(),
+      `<span class="tot"><span><b>${g.nom?"👤 "+escH(g.nom):"Sans personne"}</b> <span class="muted" style="font-size:11.5px">· ${g.ops.length}</span></span><span><b class="pos">+${eur(g.tot)}</b></span></span>`,
+      g.ops.sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(t=>`<div class="lg"><div class="g"><b>${frDateJ(t.date)}</b>${t.note?" · "+escH(t.note):""}<div class="muted" style="font-size:11px">${acctHTML(resolveAccount(t))}</div></div>
+        <div class="d"><b class="pos">+${eur(t.montant)}</b><button class="btn ghost sm" style="width:auto;padding:3px 9px;margin-left:6px;font-size:12px" onclick="detteDepuisOp('${t.id}')">🤝 À rendre</button></div></div>`).join(""),"sous")).join("")
+      :`<div class="muted" style="font-size:12.5px">Rien pour l'instant.</div>`}</div>`;
+  const finiesCard=finies.length?`<div class="card">${pli("dettes:finies",`<span class="tot"><span>✅ Remboursées</span><span class="muted" style="font-size:12px">${finies.length} · ${eur(finies.reduce((a,d)=>a+(d.montant||0),0))}</span></span>`,finies.map(d=>detteHTML(d,E[d.id])).join(""))}</div>`:"";
+  /* le formulaire : nouvelle dette, ou modification */
+  const ed=UI.detteEdit?detteDe(UI.detteEdit):null, g=ed?ed.genre:DNEW.genre, v=ed||{};
+  const epargnes=DB.accounts.filter(a=>a.active&&isSavings(a.id)), selC=v.compte||(epargnes.some(a=>a.id==="livretA")?"livretA":(epargnes[0]||{}).id);
+  const form=`<div class="card" id="detteForm"><h2>${ed?"✏️ Modifier « "+escH(detteNom(ed))+" »":"➕ Noter une dette"}</h2>
+    ${ed?"":`<div class="seg"><button class="${g==='auto'?'on-tr':''}" onclick="DNEW.genre='auto';render()">🐷 Autocrédit</button>
+      <button class="${g==='dois'?'on-dep':''}" onclick="DNEW.genre='dois';render()">👤 Je dois</button>
+      <button class="${g==='pret'?'on-ent':''}" onclick="DNEW.genre='pret';render()">🫴 On me doit</button></div>`}
+    <div class="row2"><div class="field"><label>Pour quoi (facultatif)</label><input id="dtNom" autocomplete="off" placeholder="${g==='auto'?"Ex : Réparation voiture":"Ex : Avance pour le loyer"}" value="${escH(v.nom||"")}"></div>
+      <div class="field"><label>Montant ${g==="pret"?"prêté":"emprunté"} (€)</label><input id="dtMontant" type="number" inputmode="decimal" step="0.01" placeholder="0,00" value="${v.montant||""}"></div></div>
+    <div class="row2"><div class="field"><label>Date ${g==="pret"?"du prêt":"de l'emprunt"}</label><input id="dtDate" type="date" value="${v.date||todayISO()}"></div>
+      ${g==="auto"?`<div class="field"><label>Pris sur</label>${selBq(`<select id="dtCompte">${epargnes.map(a=>`<option value="${a.id}" ${selC===a.id?"selected":""}>${acctTxt(a)}</option>`).join("")}</select>`)}</div>`
+      :`<div class="field libwrap"><label>${g==="pret"?"À qui tu l'as prêté":"Qui te l'a avancé"}</label><input id="dtPers" autocomplete="off" placeholder="Ex : Maman" value="${escH(v.personne||"")}"><div class="libdrop" id="dtDrop"></div></div>`}</div>
+    <div class="row2"><div class="field"><label>${g==="pret"?"À me rendre":"À rembourser"} avant le</label><input id="dtEch" type="date" value="${v.echeance||""}"></div>
+      <div class="field"><label>… ou en combien de mois</label><input id="dtNb" type="number" min="1" step="1" inputmode="numeric" placeholder="Ex : 6" onchange="dtMois(this.value)"></div></div>
+    ${ed?"":`<label style="display:flex;align-items:flex-start;gap:8px;margin:0 0 10px;cursor:pointer;font-size:13px"><input type="checkbox" id="dtOp" checked style="width:auto;margin-top:3px" onchange="document.getElementById('dtVersBloc').style.display=this.checked?'block':'none'">
+        <span>Enregistrer aussi ${g==="auto"?"le virement de l'épargne vers mon compte":g==="pret"?"l'argent sorti dans mes opérations":"l'argent reçu dans mes opérations"} <span class="muted">— décoche si tu l'as déjà saisi</span></span></label>
+      <div class="field" id="dtVersBloc"><label>${g==="auto"?"Vers le compte":g==="pret"?"Sorti du compte":"Reçu sur le compte"}</label>${selBq(`<select id="dtVers">${DB.accounts.filter(a=>a.active&&(g!=="auto"||isLiquid(a.id))).map(a=>`<option value="${a.id}" ${a.id==="cc"?"selected":""}>${acctTxt(a)}</option>`).join("")}</select>`)}</div>`}
+    <button class="btn" onclick="addDette()">${ed?"💾 Enregistrer":"✅ Ajouter"}</button>
+    ${ed?`<button class="btn ghost" style="margin-top:8px" onclick="UI.detteEdit=null;render()">Annuler</button>`:""}</div>`;
+  return recap+autoCard+doisCard+pretsCard+donsCard+finiesCard+form;
+}
+function dtMois(v){ const n=parseInt(v), d=document.getElementById("dtDate"), e=document.getElementById("dtEch"); if(n>0&&e) e.value=moisPlus((d&&d.value)||todayISO(),n); }
+function allerFormDette(){ const el=document.getElementById("detteForm"); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); }
+function detteModifier(id){ UI.detteEdit=id; render(); allerFormDette(); }
+function addDette(){
+  const g=id=>document.getElementById(id), ed=UI.detteEdit?detteDe(UI.detteEdit):null, genre=ed?ed.genre:DNEW.genre;
+  const m=Math.round((parseFloat(String(g("dtMontant").value||"").replace(",","."))||0)*100)/100; if(!(m>0)){ toast("Indique le montant"); return; }
+  const date=g("dtDate").value||todayISO(), ech=g("dtEch").value||"", nom=g("dtNom").value.trim();
+  if(ech&&ech<date){ toast("L'échéance est avant la date de l'emprunt"); return; }
+  let compte="", pers="";
+  if(genre==="auto"){ compte=g("dtCompte")?g("dtCompte").value:""; if(!compte){ toast("Choisis le compte d'épargne"); return; } }
+  else { pers=g("dtPers").value.trim(); if(!pers){ toast("Indique la personne"); return; }
+    pers=personnesArgent().find(s=>s.toLowerCase()===pers.toLowerCase())||pers; }   /* « maman » = « Maman » : l'écriture de la liste */
+  if(ed){ Object.assign(ed,{nom,montant:m,date,echeance:ech,majLe:maintenantISO()}); if(genre==="auto") ed.compte=compte; else ed.personne=pers;
+    UI.detteEdit=null; save(); render(); toast("Modifié ✅"); return; }
+  const d={id:uid(),genre,nom,montant:m,date,echeance:ech,majLe:maintenantISO()}; if(genre==="auto") d.compte=compte; else d.personne=pers;
+  let obj=null;
+  if(g("dtOp")&&g("dtOp").checked){ const vers=g("dtVers").value;
+    if(genre==="auto"){ if(vers===compte){ toast("Choisis deux comptes différents"); return; }
+      obj={id:uid(),type:"transfer",date,montant:m,from:compte,to:vers,note:"Autocrédit"+(nom?" — "+nom:""),observation:"",dette:d.id}; }
+    else { const cat=catArgent(); if(!cat){ toast("Crée d'abord une catégorie de genre 🤝 Argent (Réglages → Catégories)"); return; }
+      if(!Array.isArray(cat.subs)) cat.subs=[]; if(cat.subs.indexOf(pers)<0) cat.subs.push(pers);
+      obj={id:uid(),date,montant:genre==="pret"?-m:m,categorie:cat.name,sousCategorie:pers,compte:vers,moyen:isCashAcct(vers)?"ES":"VIR",note:nom||(genre==="pret"?"Prêt à ":"Avance de ")+pers,observation:"",periode:"",dette:d.id}; } }
+  DB.dettes.push(d);
+  if(obj) commit(obj,null,"avenir"); else { save(); render(); toast(genre==="pret"?"Prêt noté ✅":"Dette notée ✅"); }
+}
+/* ↩️ Rembourser : la Saisie s'ouvre, déjà remplie (montant de la mensualité, comptes) ; on vérifie et on valide */
+function detteRembourser(id){ const d=detteDe(id); if(!d) return; const e=detteEtat(d), m=Math.min(e.reste,e.parMois||e.reste);
+  if(d.genre==="auto") UI.edit={type:"transfer",date:todayISO(),montant:m,from:"cc",to:d.compte,note:"Remboursement autocrédit"+(d.nom?" — "+d.nom:""),dette:d.id};
+  else { const cat=catArgent(); if(!cat){ toast("Crée d'abord une catégorie de genre 🤝 Argent (Réglages → Catégories)"); return; }
+    UI.edit={date:todayISO(),montant:d.genre==="pret"?m:-m,categorie:cat.name,sousCategorie:d.personne||"",compte:"cc",note:"Remboursement"+(d.personne?" "+d.personne:""),dette:d.id}; }
+  UI.type=d.genre==="auto"?"tr":d.genre==="pret"?"ent":"dep"; UI.retour="avenir"; UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
+/* 📅 les mensualités deviennent des paiements à venir (une série) ; les payer là-bas rembourse la dette */
+function dettePlanifier(id){ const d=detteDe(id); if(!d) return; const e=detteEtat(d), n=e.ech.length; if(!n||e.solde) return;
+  const cat=d.genre==="auto"?null:catArgent(); if(d.genre!=="auto"&&!cat){ toast("Crée d'abord une catégorie de genre 🤝 Argent (Réglages → Catégories)"); return; }
+  const base=Math.floor(e.reste/n*100)/100, serieId=uid(), lib="Remboursement "+(d.genre==="auto"?"autocrédit"+(d.nom?" — "+d.nom:""):(d.personne||detteNom(d)));
+  e.ech.forEach((date,i)=>{ const m=i===n-1?Math.round((e.reste-base*(n-1))*100)/100:base;   /* la dernière prend les centimes qui restent */
+    const it={id:uid(),serieId,nom:n>1?`${lib} (${i+1}/${n})`:lib,date,statut:"prévu",freq:n>1?"mensuel":"ponctuel",sansFin:false,dette:d.id};
+    if(d.genre==="auto"){ it.type="transfer"; it.montant=m; it.from="cc"; it.to=d.compte; }
+    else { it.montant=d.genre==="pret"?m:-m; it.categorie=cat.name; it.sousCategorie=d.personne||""; it.compte="cc"; }
+    DB.future.push(it); });
+  save(); render(); toast(n+" mensualité"+(n>1?"s":"")+" ajoutée"+(n>1?"s":"")+" dans Paiements 📅"); }
+/* 🔄 après un remboursement en plus (ou en moins) : ce qu'il reste est réparti sur les mensualités encore prévues */
+function detteRecaler(id){ const d=detteDe(id); if(!d) return; const e=detteEtat(d), n=e.prevus.length; if(!n) return;
+  const base=Math.floor(e.reste/n*100)/100;
+  e.prevus.forEach((f,i)=>{ const m=i===n-1?Math.round((e.reste-base*(n-1))*100)/100:base; f.montant=(f.type==="transfer"||d.genre==="pret")?m:-m; });
+  save(); render(); toast("Mensualités recalculées : "+eur(base)+" ✅"); }
+function detteRattacher(id,txId){ const t=DB.transactions.find(x=>x.id===txId); if(!t||!detteDe(id)) return;
+  t.dette=id; t.majLe=maintenantISO(); save(); render(); toast("Rattaché ✅"); }
+function detteDetacher(txId){ const t=DB.transactions.find(x=>x.id===txId); if(!t) return;
+  const avant=t.dette; delete t.dette; t.majLe=maintenantISO(); save(); render();
+  toast("Détaché",{libelle:"↩️ Annuler",fn:()=>{ t.dette=avant; save(); render(); }}); }
+/* une opération déjà saisie devient une dette : un retrait d'épargne = un autocrédit, de l'argent reçu = à rendre */
+function detteDepuisOp(txId){ const t=DB.transactions.find(x=>x.id===txId); if(!t) return;
+  const d={id:uid(),nom:"",montant:Math.round(Math.abs(t.montant)*100)/100,date:t.date||todayISO(),echeance:"",majLe:maintenantISO()};
+  if(t.type==="transfer"){ d.genre="auto"; d.compte=t.from; d.nom=/^autocr/i.test(t.note||"")?"":(t.note||""); } else { d.genre=t.montant<0?"pret":"dois"; d.personne=(t.sousCategorie||"").trim(); d.nom=t.note||""; }
+  DB.dettes.push(d); t.dette=d.id; t.majLe=maintenantISO(); save();
+  UI.detteEdit=d.id; render(); allerFormDette(); toast("C'est noté ✅ Donne-lui une échéance."); }
+async function detteSuppr(id){ const d=detteDe(id); if(!d) return;
+  const prevus=DB.future.filter(f=>f.dette===id&&f.statut==="prévu").length;
+  if(!await demander(`Supprimer « ${detteNom(d)} » ?\n\nSes opérations restent dans Opérations, elles ne sont simplement plus rattachées.${prevus?`\nSes ${prevus} mensualité(s) encore prévue(s) sont retirées des paiements à venir.`:""}`,{oui:"Supprimer",danger:true})) return;
+  DB.transactions.forEach(t=>{ if(t.dette===id){ delete t.dette; t.majLe=maintenantISO(); } });
+  DB.future=DB.future.filter(f=>!(f.dette===id&&f.statut==="prévu")); DB.future.forEach(f=>{ if(f.dette===id) delete f.dette; });
+  DB.dettes=DB.dettes.filter(x=>x.id!==id); if(UI.detteEdit===id) UI.detteEdit=null;
+  save(); render(); toast("Dette supprimée 🗑️"); }
 
 /* ===================== COMPTEUR DE CAISSE ===================== */
 const DENOMS=[{v:500,l:"500 €"},{v:200,l:"200 €"},{v:100,l:"100 €"},{v:50,l:"50 €"},{v:20,l:"20 €"},{v:10,l:"10 €"},{v:5,l:"5 €"},{v:2,l:"2 €"},{v:1,l:"1 €"},{v:0.5,l:"50 c"},{v:0.2,l:"20 c"},{v:0.1,l:"10 c"},{v:0.05,l:"5 c"},{v:0.02,l:"2 c"},{v:0.01,l:"1 c"}];
@@ -2785,6 +3081,7 @@ function mouvementsCompte(acctId,m){
   let e=0,s=0; if(!acctId) return {in:0,out:0,net:0};
   const add=(x)=>{ if(x>0) e+=x; else s+=-x; };
   txOfMonth(m).forEach(t=>{
+    if(t.dette&&detteDe(t.dette)) return;   /* autocrédit et ses remboursements : suivis à part (À venir → Dettes), ni épargne en moins ni épargne en plus */
     if(t.type==="transfer"){ const v=Math.abs(t.montant);
       if(t.to===acctId) add(v); if(t.from===acctId) add(-v); return; }
     if(isActivation(t)) return;
@@ -2817,7 +3114,7 @@ function epargneCardHTML(m,nbMois){
       </div>`:""}
     </div>`;}).join("");
   return `<div class="card"><h2>🐷 Mon épargne du mois${k>1?" — cumul sur "+k+" mois":""}</h2>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Fixe une cible par compte (Livret A, caisse, Swissborg…). Ce sont des <b>objectifs souples</b> : t'en approcher c'est déjà bien, faire moins un mois n'est pas grave. Le <b>⇄</b> prépare le virement du reste.<br>Tout ce qui arrive sur le compte compte : les virements <b>et</b> les entrées saisies dessus (une entrée d'espèces dans la caisse, par exemple) — moins ce qui en ressort.</div>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Fixe une cible par compte (Livret A, caisse, Swissborg…). Ce sont des <b>objectifs souples</b> : t'en approcher c'est déjà bien, faire moins un mois n'est pas grave. Le <b>⇄</b> prépare le virement du reste.<br>Tout ce qui arrive sur le compte compte : les virements <b>et</b> les entrées saisies dessus (une entrée d'espèces dans la caisse, par exemple) — moins ce qui en ressort.<br>🐷 Un <b>autocrédit</b> et ses remboursements ne comptent pas ici : ils se suivent à part, dans <a href="#" onclick="ouvrirDettes();return false">À venir → 🤝 Dettes</a>, et s'ajoutent à cette épargne.</div>
     ${rows||'<div class="muted" style="font-size:12.5px">Aucun objectif d\'épargne pour l\'instant.</div>'}
     ${totCible>0?`<div class="bbar" style="margin-top:12px">
       <div class="top"><span><b>Total mis de côté</b></span><span style="color:${totFait>=totCible-0.005?'var(--pos)':'var(--accent)'}">${eur0(totFait)} <span class="muted">/ ${eur0(totCible)} visés</span></span></div>
