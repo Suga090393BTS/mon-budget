@@ -416,7 +416,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v22 · 22/11</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v23 · 22/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -1956,6 +1956,27 @@ function moisPlus(iso,n){ const p=(iso||todayISO()).split("-").map(Number), d=ne
 /* Une échéance réglée ou annulée quitte « À payer » pour l'historique : la liste du haut ne garde
    que ce qui reste à payer, rangé par mois (les retards d'abord). L'historique est replié (le pli est
    retenu par appareil) et rangé par mois, du plus récent au plus ancien. */
+/* La liste « À payer », rangée par mois ; AVQ = ce qui est tapé dans la recherche (la liste seule est redessinée, le champ garde le curseur). */
+let AVQ="";
+function avListeHTML(){
+  const today=todayISO(), r2=x=>Math.round(x*100)/100;
+  const tous=DB.future.filter(f=>f.statut!=="payé"&&f.statut!=="annulé").sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  const q=AVQ.trim().toLowerCase().replace(".",",");
+  const texte=f=>{ const d=f.dette&&detteDe(f.dette);
+    const cptes=(f.type==="transfer"?[f.from,f.to]:[f.compte]).map(id=>{ const a=DB.accounts.find(x=>x.id===id); return a?a.name:""; }).join(" ");
+    return ((f.nom||"")+" "+(f.categorie||"")+" "+(f.sousCategorie||"")+" "+cptes+" "+(d?(d.nom||"")+" "+detteNom(d):"")+" "+frDate(f.date)+" "+Math.abs(f.montant).toFixed(2).replace(".",",")).toLowerCase(); };
+  const L=q?tous.filter(f=>texte(f).includes(q)):tous;
+  const som=X=>r2(X.filter(f=>f.type!=="transfer"&&f.montant<0).reduce((a,f)=>a+Math.abs(f.montant),0));
+  const groupe=f=>(f.date||"")<today?"retard":(f.date||"").slice(0,7);
+  if(!tous.length) return `<div class="empty">Rien à payer pour l'instant 🎉${DB.future.length?"<br>Ce qui est réglé est rangé dans l'historique, juste en dessous.":" Ajoute-en un avec le bouton ➕ juste au-dessus 👆"}</div>`;
+  if(!L.length) return `<div class="empty">Rien ne correspond à « ${escH(AVQ.trim())} ».</div>`;
+  let h=q?`<div class="mois-sep"><span>🔍 ${L.length} trouvé${L.length>1?"s":""}</span><span>${som(L)?"−"+eur(som(L)):"—"}</span></div>`:"", cur=null;
+  L.forEach(f=>{ const k=groupe(f);
+    if(k!==cur){ cur=k; const M=L.filter(x=>groupe(x)===k), t=som(M);
+      h+=`<div class="mois-sep"><span>${k==="retard"?"⏰ En retard":moisMaj(+k.slice(5,7)-1)+" "+k.slice(0,4)}</span><span>${M.length} · ${t?"−"+eur(t):"—"}</span></div>`; }
+    h+=fitemHTML(f,today); });
+  return h;
+}
 function viewPaiements(){
   const today=todayISO(), r2=x=>Math.round(x*100)/100;
   const fini=(f)=>f.statut==="payé"||f.statut==="annulé";
@@ -1966,12 +1987,7 @@ function viewPaiements(){
   const nomMois=k=>moisMaj(+k.slice(5,7)-1)+" "+k.slice(0,4);
   const ym=today.slice(0,7), ymS=moisPlus(ym+"-01",1).slice(0,7);
   const G=k=>aVenir.filter(f=>groupe(f)===k);
-  let items="", cur=null;
-  aVenir.forEach(f=>{ const k=groupe(f);
-    if(k!==cur){ cur=k; const L=G(k), t=som(L);
-      items+=`<div class="mois-sep"><span>${k==="retard"?"⏰ En retard":nomMois(k)}</span><span>${L.length} · ${t?"−"+eur(t):"—"}</span></div>`; }
-    items+=fitemHTML(f,today); });
-  if(!aVenir.length) items=`<div class="empty">Rien à payer pour l'instant 🎉${passes.length?"<br>Ce qui est réglé est rangé dans l'historique, juste en dessous.":" Ajoute-en un avec le bouton ➕ juste au-dessus 👆"}</div>`;
+  const items=avListeHTML();
   const lignes=[];
   if(G("retard").length) lignes.push(["⏰ En retard",`<span class="neg">−${eur(som(G("retard")))}</span>`]);
   const moins=v=>(v>0.005?"−":"")+eur(v);
@@ -1998,7 +2014,8 @@ function viewPaiements(){
   return `${haut}${UI.avForm?"\u0000FORM":""}${recap}
   <div class="card"><h2>📌 À payer <span class="tag">${aVenir.length}</span></h2>
     ${aVenir.some(f=>isSerie(f))?`<div class="muted" style="font-size:11.5px;margin-bottom:10px">🔁 Un prélèvement change de montant ? Clique le bouton <b>🔁</b> de n'importe laquelle de ses échéances : tu modifies ou supprimes <b>toutes les suivantes d'un seul coup</b>.</div>`:""}
-    <div>${items}</div></div>
+    ${aVenir.length>5?`<div class="field" style="margin:0 0 10px"><input id="avq" autocomplete="off" placeholder="🔍 Chercher (nom, catégorie, compte, date 13/10, montant…)" value="${escH(AVQ)}" oninput="AVQ=this.value;document.getElementById('avListe').innerHTML=avListeHTML()"></div>`:""}
+    <div id="avListe">${items}</div></div>
   ${histo}`.replace("\u0000FORM",()=>UI.avForm?`
   <div class="card" id="avForm"><h2>➕ Prévoir un paiement</h2>
     <div class="seg"><button class="${t==='dep'?'on-dep':''}" onclick="FNEW.type='dep';render()">↓ Dépense</button>
@@ -3799,8 +3816,8 @@ function viewHoraires(){
   ${planningHTML}
   <div class="card" id="horForm"><h2>${editing?"✏️ Modifier la journée":"➕ Ajouter une journée"}</h2>
     <div class="field"><label>Date</label><input id="hDate" type="date" value="${e.date||todayISO()}"></div>
-    <div class="row2"><div class="field"><label>Début</label><input id="hDebut" type="time" value="${e.debut||'09:00'}"></div>
-      <div class="field"><label>Fin</label><input id="hFin" type="time" value="${e.fin||'17:00'}"></div></div>
+    <div class="row2"><div class="field"><label>Début</label>${heureChamp("hDebut",e.debut||'09:00')}</div>
+      <div class="field"><label>Fin</label>${heureChamp("hFin",e.fin||'17:00')}</div></div>
     ${showPause
       ? `<div class="field"><label>Coupure (min) <span class="muted" style="font-weight:400">— facultatif</span></label><input id="hPause" type="number" min="0" step="5" placeholder="0" value="${e.pause||''}"></div>`
       : `<input id="hPause" type="hidden" value="">
@@ -3817,9 +3834,17 @@ function setHorTab(t){ UI.horTab=t; render(); window.scrollTo(0,0); }
 /* amène le formulaire « journée » à l'écran (il est sous le semainier, dans l'onglet Semaine) */
 function versFormHoraire(){ UI.horTab="semaine"; render();
   const f=document.getElementById("horForm"); if(f) f.scrollIntoView({behavior:"smooth",block:"start"}); }
+/* Sur un appareil sans écran tactile (l'app du Mac surtout), le champ « heure » du système fait planter l'app :
+   il ouvre une roulette que le Mac refuse. On y met un champ où l'heure se tape : 9, 9h30, 930, 17:15… */
+function heureNorm(v){ const m=String(v||"").trim().toLowerCase().match(/^(\d{1,2})\s*(?:[h:.,\s]\s*(\d{1,2})?|(\d{2}))?$/);
+  if(!m) return ""; const h=+m[1], mn=+(m[2]||m[3]||0); if(h>23||mn>59) return "";
+  return String(h).padStart(2,"0")+":"+String(mn).padStart(2,"0"); }
+function heureChamp(id,val){
+  return navigator.maxTouchPoints>0?`<input id="${id}" type="time" value="${val}">`
+    :`<input id="${id}" type="text" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="9h30" value="${val}" onfocus="this.select()" onblur="this.value=heureNorm(this.value)||this.value">`; }
 function saveHoraire(){
-  const date=document.getElementById("hDate").value, debut=document.getElementById("hDebut").value, fin=document.getElementById("hFin").value;
-  if(!date||!debut||!fin){toast("Date, début et fin requis");return;}
+  const date=document.getElementById("hDate").value, debut=heureNorm(document.getElementById("hDebut").value), fin=heureNorm(document.getElementById("hFin").value);
+  if(!date||!debut||!fin){toast(date?"Heure de début ou de fin à corriger (ex : 9h30)":"Date, début et fin requis");return;}
   const eid=(UI.horEdit&&UI.horEdit.id)?UI.horEdit.id:null;
   const obj={id:eid||uid(),date,debut,fin,pause:parseInt(document.getElementById("hPause").value)||0,note:document.getElementById("hNote").value.trim(),remplacement:!!(document.getElementById("hRempl")&&document.getElementById("hRempl").checked)};
   if(eid){ const i=DB.horaires.findIndex(x=>x.id===eid); if(i>=0)DB.horaires[i]=obj; } else DB.horaires.push(obj);
