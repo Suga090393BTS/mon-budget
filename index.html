@@ -416,7 +416,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v24 · 22/11</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v25 · 22/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -3815,9 +3815,10 @@ function viewHoraires(){
   </div>
   ${planningHTML}
   <div class="card" id="horForm"><h2>${editing?"✏️ Modifier la journée":"➕ Ajouter une journée"}</h2>
-    <div class="field"><label>Date</label><input id="hDate" type="date" value="${e.date||todayISO()}"></div>
-    <div class="row2"><div class="field"><label>Début</label>${heureChamp("hDebut",e.debut||'09:00')}</div>
-      <div class="field"><label>Fin</label>${heureChamp("hFin",e.fin||'17:00')}</div></div>
+    <div class="field"><label>Date</label>${navigator.maxTouchPoints>0?`<input id="hDate" type="date" value="${e.date||todayISO()}">`
+      :`<input id="hDate" type="text" autocomplete="off" placeholder="ex : 22/11" value="${frDate(e.date||todayISO())}" onkeydown="if(event.key==='Enter')saveHoraire()">`}</div>
+    <div class="row2"><div class="field"><label>Début</label>${heureChamp("hDebut",e.debut,"09:00")}</div>
+      <div class="field"><label>Fin</label>${heureChamp("hFin",e.fin,"17:00")}</div></div>
     ${showPause
       ? `<div class="field"><label>Coupure (min) <span class="muted" style="font-weight:400">— facultatif</span></label><input id="hPause" type="number" min="0" step="5" placeholder="0" value="${e.pause||''}"></div>`
       : `<input id="hPause" type="hidden" value="">
@@ -3835,21 +3836,26 @@ function setHorTab(t){ UI.horTab=t; render(); window.scrollTo(0,0); }
 function versFormHoraire(){ UI.horTab="semaine"; render();
   const f=document.getElementById("horForm"); if(f) f.scrollIntoView({behavior:"smooth",block:"start"}); }
 /* Sur un appareil sans écran tactile (l'app du Mac surtout), pas de champ « heure » du système : sa roulette fait planter
-   l'app, et un champ où l'on tape fige son clavier. Deux listes à la place (heure, minutes), comme les autres listes de l'app. */
-function heureNorm(v){ const m=String(v||"").trim().toLowerCase().match(/^(\d{1,2})\s*(?:[h:.,\s]\s*(\d{1,2})?|(\d{2}))?$/);
+   l'app. À la place, un champ tout simple où l'heure se tape (9, 9h30, 930, 17:15…), lue par heureNorm() à l'enregistrement.
+   Champ volontairement nu, comme les autres champs de l'app : rien ne touche à la sélection ni au texte pendant la frappe. */
+/* sur un clavier français, la rangée du haut donne & é " ' ( § è ! ç à sans la touche Majuscule : on les lit comme 1 à 0 */
+function chiffresAzerty(v){ const T={"&":"1","é":"2",'"':"3","'":"4","(":"5","§":"6","è":"7","!":"8","ç":"9","à":"0"}; return String(v||"").replace(/[&é"'(§è!çà]/g,c=>T[c]); }
+/* une date tapée : 22 · 22/11 · 22/11/26 · 22/11/2026 · 2211 (le mois et l'année qui manquent sont ceux d'aujourd'hui) ; déjà en AAAA-MM-JJ : gardée */
+function dateNorm(v){ v=chiffresAzerty(v).trim(); if(/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const m=v.match(/^(\d{1,2})(?:[\/.\-\s]+(\d{1,2})(?:[\/.\-\s]+(\d{2}|\d{4}))?)?$/)||v.match(/^(\d{2})(\d{2})(\d{2}|\d{4})?$/);
+  if(!m) return ""; const t=todayISO(), j=+m[1], mo=m[2]?+m[2]:+t.slice(5,7), a=m[3]?(m[3].length===2?2000+ +m[3]:+m[3]):+t.slice(0,4);
+  const d=new Date(a,mo-1,j); if(d.getFullYear()!==a||d.getMonth()!==mo-1||d.getDate()!==j) return "";
+  return a+"-"+String(mo).padStart(2,"0")+"-"+String(j).padStart(2,"0"); }
+function heureNorm(v){ const m=chiffresAzerty(v).trim().toLowerCase().match(/^(\d{1,2})\s*(?:[h:.,\s]\s*(\d{1,2})?|(\d{2}))?$/);
   if(!m) return ""; const h=+m[1], mn=+(m[2]||m[3]||0); if(h>23||mn>59) return "";
   return String(h).padStart(2,"0")+":"+String(mn).padStart(2,"0"); }
-function heureChamp(id,val){
-  if(navigator.maxTouchPoints>0) return `<input id="${id}" type="time" value="${val}">`;
-  const v=heureNorm(val)||"09:00", h=+v.slice(0,2), mn=+v.slice(3), d2=n=>String(n).padStart(2,"0");
-  const mins=[]; for(let m=0;m<60;m+=5) mins.push(m); if(mn%5){ mins.push(mn); mins.sort((x,y)=>x-y); }
-  return `<div style="display:flex;gap:8px;align-items:center"><select id="${id}H" style="flex:1">${Array.from({length:24},(_,i)=>`<option value="${d2(i)}" ${i===h?"selected":""}>${i} h</option>`).join("")}</select>
-    <select id="${id}M" style="flex:1">${mins.map(m=>`<option value="${d2(m)}" ${m===mn?"selected":""}>${d2(m)}</option>`).join("")}</select></div>`; }
-function heureLue(id){ const e=document.getElementById(id); if(e) return heureNorm(e.value);
-  const h=document.getElementById(id+"H"), m=document.getElementById(id+"M"); return h&&m?h.value+":"+m.value:""; }
+function heureChamp(id,val,ex){
+  return navigator.maxTouchPoints>0?`<input id="${id}" type="time" value="${val||ex}">`
+    :`<input id="${id}" type="text" autocomplete="off" placeholder="ex : ${ex.replace(":","h")}" value="${val||""}" onkeydown="if(event.key==='Enter')saveHoraire()">`; }
+function heureLue(id){ const e=document.getElementById(id); return e?heureNorm(e.value):""; }
 function saveHoraire(){
-  const date=document.getElementById("hDate").value, debut=heureLue("hDebut"), fin=heureLue("hFin");
-  if(!date||!debut||!fin){toast(date?"Heure de début ou de fin à corriger (ex : 9h30)":"Date, début et fin requis");return;}
+  const date=dateNorm(document.getElementById("hDate").value), debut=heureLue("hDebut"), fin=heureLue("hFin");
+  if(!date||!debut||!fin){toast(date?"Heure de début ou de fin à corriger (ex : 9h30)":"Date à corriger (ex : 22/11)");return;}
   const eid=(UI.horEdit&&UI.horEdit.id)?UI.horEdit.id:null;
   const obj={id:eid||uid(),date,debut,fin,pause:parseInt(document.getElementById("hPause").value)||0,note:document.getElementById("hNote").value.trim(),remplacement:!!(document.getElementById("hRempl")&&document.getElementById("hRempl").checked)};
   if(eid){ const i=DB.horaires.findIndex(x=>x.id===eid); if(i>=0)DB.horaires[i]=obj; } else DB.horaires.push(obj);
