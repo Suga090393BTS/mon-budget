@@ -416,7 +416,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v25 · 22/11</span></h1>
+      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v26 · 24/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -1298,7 +1298,7 @@ function renderNav(){
     +`<button class="${UI.tab==='reglages'?'active':''}" onclick="go('reglages')" style="margin-top:auto"><span class="ic">⚙️</span>Réglages</button>`;
   document.getElementById("bottomnav").innerHTML=NAV.map(([k,l,i,s])=>`<button class="${UI.tab===k?'active':''}" onclick="go('${k}')"><span class="ic">${i}</span>${s}</button>`).join("");
 }
-function go(tab){ UI.tab=tab; UI.avForm=false; UI.detteForm=false; UI.detteEdit=null; UI.edit=null; UI.retour=null; UI.objDepuis=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; UI.espRecompter=false; UI.fusionCat=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
+function go(tab){ UI.tab=tab; UI.avForm=false; UI.detteForm=false; UI.detteEdit=null; UI.edit=null; UI.retour=null; UI.objDepuis=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; UI.espRecompter=false; UI.fusionCat=null; UI.aRendre=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
   const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
@@ -1587,6 +1587,7 @@ function viewSaisie(){
         <div class="field"><label>Catégorie</label><select id="fCat" onchange="onCatChange()">${catOptions(e.categorie,t)}</select></div>
         <div class="field"><label id="fSubLbl">${catGenre(e.categorie)==="argent"?"Personne":"Sous-catégorie"}</label><select id="fSub" onchange="onSubChange()">${subOptions(e.categorie,e.sousCategorie,true)}</select></div></div>
       <div id="catHint" class="muted" style="font-size:12px;margin:-6px 0 12px;display:none"></div>
+      <div id="aRendre" style="display:none"></div>
       <div class="row2">
         <div class="field"><label>Compte</label>${selBq(`<select id="fCompte" onchange="onCompteChange()">${acctOptions(compteSel)}</select>`)}</div>
         <div class="field"><label>Moyen de paiement</label><select id="fMoyen">${moyenOptions(moyenSel)}</select></div></div>
@@ -1638,20 +1639,37 @@ function catHint(){ const h=document.getElementById("catHint"), cs=document.getE
   else if(c&&g==="paye"&&!ent) txt=`⚠️ <b>Paye</b> en dépense : ce montant ne comptera ni comme dépense ni comme paye. Choisis plutôt une enveloppe.`;
   else if(g==="argent") txt=ent?`🤝 <b>Argent</b> qu'on te donne ou qu'on te rend : choisis la personne. Ce n'est pas ta paye.`
                                :`🤝 <b>Argent</b> que tu donnes ou que tu rends : choisis la personne. Ce n'est pas une dépense d'enveloppe.`;
-  h.innerHTML=txt; h.style.display=txt?"":"none"; }
+  h.innerHTML=txt; h.style.display=txt?"":"none"; aRendreMaj(); }
+/* Entrée d'Argent (quelqu'un te donne de l'argent) : « Je dois le rendre ? » tout de suite.
+   Oui = la dette « je dois » est créée avec l'opération (À venir → 🤝 Dettes) ; non = un don. UI.aRendre : null (pas encore répondu), true, false.
+   Pas à la modification d'une opération, ni quand elle rembourse déjà une dette (↩️ On m'a rendu). */
+function aRendreVisible(){ const cs=document.getElementById("fCat");
+  return !!(cs&&UI.type==="ent"&&!(UI.edit&&(UI.edit.id||UI.edit.dette))&&catGenre(cs.value)==="argent"); }
+function aRendrePers(){ const ss=document.getElementById("fSub"); return ss&&ss.value&&ss.value!=="__new__"?ss.value:""; }
+function aRendreMaj(){ const box=document.getElementById("aRendre"); if(!box) return;
+  if(!aRendreVisible()){ box.innerHTML=""; box.style.display="none"; return; }
+  const v=UI.aRendre, p=aRendrePers(), ech=document.getElementById("fEch"), echV=ech?ech.value:"";
+  box.style.display="";
+  box.innerHTML=`<div class="field"><label style="color:var(--text);font-size:13.5px">🤝 Je dois le rendre${p?" à "+escH(p):""} ?</label>
+    <div class="seg" style="margin-bottom:8px"><button type="button" class="${v===false?"on-ent":""}" onclick="setARendre(false)">Non, c'est un don</button><button type="button" class="${v===true?"on-dep":""}" onclick="setARendre(true)">Oui, à rendre</button></div>
+    ${v===true?`<div class="row2"><div class="field"><label>À rendre avant le (facultatif)</label><input id="fEch" type="date" value="${escH(echV)}"></div>
+        <div class="field"><label>… ou en combien de mois</label><input id="fEchNb" type="number" min="1" step="1" inputmode="numeric" placeholder="Ex : 6" onchange="dtMois(this.value,'fDate','fEch')"></div></div>
+      <div class="muted" style="font-size:12px;margin-top:-6px">👤 La dette sera notée dans <b>À venir → 🤝 Dettes</b>, avec cette opération.</div>`
+    :v===false?`<div class="muted" style="font-size:12px">🎁 Rien à rendre : il ira dans « Reçu sans avoir à rendre ».</div>`:""}</div>`; }
+function setARendre(v){ UI.aRendre=v; aRendreMaj(); }
 /* à la modification d'une dépense : on la garde telle quelle et on prépare une nouvelle ligne de remboursement (même enveloppe) */
 function rembNouvelleLigne(){ const v=id=>{ const el=document.getElementById(id); return el?el.value:""; };
   UI.edit={date:todayISO(), note:"", categorie:v("fCat"), sousCategorie:v("fSub")==="__new__"?"":v("fSub"), compte:v("fCompte")};   /* moyen : celui d'une entrée par défaut */
   UI.type="ent"; render(); window.scrollTo(0,0); toast("↩️ Nouvelle ligne : ta dépense reste telle quelle"); }
 /* « ➕ Nouvelle personne… » : on l'ajoute aux sous-catégories de la catégorie Argent */
 async function onSubChange(){ const ss=document.getElementById("fSub"), cs=document.getElementById("fCat"); if(!ss||!cs) return;
-  if(ss.value!=="__new__"){ ss.dataset.prev=ss.value; return; }
+  if(ss.value!=="__new__"){ ss.dataset.prev=ss.value; aRendreMaj(); return; }
   const prev=ss.dataset.prev!=null?ss.dataset.prev:((UI.edit&&UI.edit.categorie===cs.value&&UI.edit.sousCategorie)||"");
   const c=catObj(cs.value), nom=((await demanderTexte("Nom de la personne :","",{oui:"Ajouter"})||"")+"").replace(/,/g," ").replace(/\s+/g," ").trim();   /* pas de virgule : elle sépare les personnes dans Réglages */
-  if(!c||!nom){ ss.innerHTML=subOptions(cs.value,prev,true); return; }   /* annulé : on remet la personne d'avant */
+  if(!c||!nom){ ss.innerHTML=subOptions(cs.value,prev,true); aRendreMaj(); return; }   /* annulé : on remet la personne d'avant */
   c.subs=c.subs||[]; const deja=c.subs.find(x=>x.toLowerCase()===nom.toLowerCase());
   if(!deja){ c.subs.push(nom); save(); toast("👤 "+nom+" ajouté(e)"); }
-  ss.innerHTML=subOptions(cs.value,deja||nom,true); ss.dataset.prev=deja||nom; }
+  ss.innerHTML=subOptions(cs.value,deja||nom,true); ss.dataset.prev=deja||nom; aRendreMaj(); }
 function escH(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;"); }
 /* tous les libellés connus : ma liste (⭐) + tout ce que j'ai déjà saisi (avec la catégorie utilisée) */
 function libPool(){
@@ -1733,7 +1751,7 @@ function applySugg(cat,sub){ let cs=document.getElementById("fCat");
   if(cs){ cs.value=cat; const ss=document.getElementById("fSub"); ss.innerHTML=subOptions(cat,sub,true); ss.dataset.prev=sub||""; catHint(); }
   /* la puce correspondante passe en « retenue » */
   document.querySelectorAll("#sugg .apply").forEach(b=>b.classList.toggle("on",b.dataset.c===cat&&(b.dataset.s||"")===(sub||""))); }
-function saveTx(){
+async function saveTx(){
   const mont=parseFloat((document.getElementById("fMontant").value||"").replace(",","."));
   if(!mont||mont<=0){ toast("Indique un montant 🙏"); return; }
   const date=document.getElementById("fDate").value;
@@ -1756,6 +1774,22 @@ function saveTx(){
     sousCategorie:(document.getElementById("fSub").value==="__new__"?"":document.getElementById("fSub").value), compte:document.getElementById("fCompte").value,
     moyen:document.getElementById("fMoyen").value, observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():""), periode:(UI.edit&&UI.edit.periode)||"" };
   if(dt) obj.dette=dt;
+  /* 🤝 de l'argent reçu d'une personne : je dois le rendre ? (oui = la dette est créée avec l'opération) */
+  let dette=null;
+  if(aRendreVisible()){
+    const pers=obj.sousCategorie, m=Math.round(Math.abs(mont)*100)/100, echEl=document.getElementById("fEch"), ech=echEl?echEl.value:"";
+    let oui=UI.aRendre;
+    if(oui==null){ oui=await demander(`Tu dois rendre ces ${eur(m)}${pers?" à "+pers:""} ?\nOui : la dette est notée dans À venir → 🤝 Dettes.\nNon : c'est un don, rien à rendre.`,{oui:"Oui, je dois le rendre",non:"Non, c'est un don",echap:null});
+      if(oui==null) return;   /* fenêtre fermée : rien n'est enregistré, le formulaire reste rempli */
+      if(oui){ UI.aRendre=true; aRendreMaj(); } }
+    if(oui){
+      if(!pers){ toast("Choisis la personne à qui tu dois le rendre 👤"); return; }
+      if(ech&&ech<date){ toast("La date pour rendre est avant la date de l'opération"); return; }
+      dette={id:uid(),genre:"dois",nom:obj.note||"",montant:m,date,echeance:ech,personne:pers,majLe:maintenantISO()};
+      obj.dette=dette.id; } }
+  if(dette){ DB.dettes.push(dette); UI.aRendre=null;
+    commit(obj,null,null,`Opération ajoutée ✅ · 🤝 ${eur(dette.montant)} à rendre à ${dette.personne}`); return; }
+  UI.aRendre=null;
   commit(obj,eid,eid?UI.retour:(dt?"avenir":null));
 }
 function isCashAcct(id){ const a=acct(id); return !!(a&&a.type==="cash"); }
@@ -1820,12 +1854,13 @@ function ajusterDecomptes(old,obj){
   });
   return {auto, recompter};
 }
-function commit(obj,eid,dest){
+function commit(obj,eid,dest,msg){
   dest=dest||"tx";   /* page affichée une fois l'opération enregistrée */
   const old=eid?DB.transactions.find(t=>t.id===eid):null;   /* version d'avant, pour corriger les décomptes d'espèces */
   obj.majLe=maintenantISO();
-  if(eid){ const i=DB.transactions.findIndex(t=>t.id===eid); if(i>=0)DB.transactions[i]=obj; else DB.transactions.push(obj); toast("Modifié ✅"); }
-  else { DB.transactions.push(obj); toast("Opération ajoutée ✅"); }
+  if(eid){ const i=DB.transactions.findIndex(t=>t.id===eid); if(i>=0)DB.transactions[i]=obj; else DB.transactions.push(obj); toast(msg||"Modifié ✅"); }
+  else { DB.transactions.push(obj); toast(msg||"Opération ajoutée ✅"); }
+  detteSuitEmprunt(old,obj);   /* l'opération d'emprunt d'une dette corrigée : la dette suit (montant, date, personne) */
   /* apprentissage : ce libellé → cette catégorie (reproposé la prochaine fois) */
   if(obj.type!=="transfer"&&obj.note&&obj.categorie){ if(!DB.trained)DB.trained={}; DB.trained[obj.note.trim().toLowerCase()]=[obj.categorie,obj.sousCategorie||""]; }
   /* Détail en billets/pièces : décomptes mis à jour tout seuls, ou recomptage à faire */
@@ -1906,11 +1941,19 @@ function editTx(id){ const t=DB.transactions.find(x=>x.id===id); if(!t) return; 
 function delTx(id){
   const i=DB.transactions.findIndex(x=>x.id===id); if(i<0) return;
   const copie=JSON.parse(JSON.stringify(DB.transactions[i]));
+  /* l'opération qui a fait naître une dette (ex : « Je dois le rendre ? » oui, à la Saisie), seule rattachée, sans mensualités,
+     ni clôture, ni remise : la dette part avec elle — « Annuler » remet les deux */
+  const d=copie.dette&&detteDe(copie.dette);
+  const dCopie=(d&&!estRembDette(d,copie)&&DB.transactions.filter(x=>x.dette===d.id).length===1&&!DB.future.some(f=>f.dette===d.id)&&!d.clos&&!d.annule)?JSON.parse(JSON.stringify(d)):null;
   const r=ajusterDecomptes(DB.transactions[i],null);   /* on remet le décompte de caisse comme avant, ou on propose de recompter */
-  DB.transactions.splice(i,1); save();
-  if(r.recompter.length){ toast("Supprimé"); UI.recountQueue=r.recompter; UI.afterRecount="tx"; nextRecount(); return; }
-  toast("Supprimé",{libelle:"↩️ Annuler",fn:()=>{
+  DB.transactions.splice(i,1);
+  if(dCopie) DB.dettes=DB.dettes.filter(x=>x.id!==dCopie.id);
+  save();
+  const msg=dCopie?`Supprimé · avec sa dette « ${detteNom(dCopie)} »`:"Supprimé";
+  if(r.recompter.length){ toast(msg); UI.recountQueue=r.recompter; UI.afterRecount="tx"; nextRecount(); return; }
+  toast(msg,{libelle:"↩️ Annuler",fn:()=>{
     DB.transactions.splice(Math.min(i,DB.transactions.length),0,copie); ajusterDecomptes(null,copie);
+    if(dCopie&&!detteDe(dCopie.id)) DB.dettes.push(dCopie);
     save(); renderTxList(); toast("Remis ✅"); }});
   renderTxList(); }
 
@@ -2232,11 +2275,14 @@ function detteEcheances(d,depuis){ const L=[], ref=depuis&&depuis>todayISO()?dep
   return L; }
 function detteEtat(d){ const r2=x=>Math.round(x*100)/100;
   const ops=DB.transactions.filter(t=>t.dette===d.id).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  const rendu=r2(ops.filter(t=>estRembDette(d,t)).reduce((a,t)=>a+Math.abs(t.montant),0)), reste=d.clos?0:r2(Math.max(0,(d.montant||0)-rendu));   /* d.clos : marquée « déjà remboursée » à la main */
+  const rendu=r2(ops.filter(t=>estRembDette(d,t)).reduce((a,t)=>a+Math.abs(t.montant),0));
+  /* d.annule : la part que la personne ne demande plus (remise de dette) ; jamais plus que ce qui restait après les remboursements */
+  const annule=r2(Math.min(d.annule||0,Math.max(0,(d.montant||0)-rendu)));
+  const reste=d.clos?0:r2(Math.max(0,(d.montant||0)-rendu-annule));   /* d.clos : marquée « déjà remboursée » à la main */
   const dernier=ops.filter(t=>estRembDette(d,t)).map(t=>t.date||"").sort().pop();
   const solde=reste<0.005, ech=detteEcheances(d,dernier), nb=Math.max(1,ech.length);
   const prevus=DB.future.filter(f=>f.dette===d.id&&f.statut==="prévu").sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-  return {ops,rendu,reste,solde,ech,nb,prevus,retard:!solde&&!!d.echeance&&d.echeance<todayISO(),parMois:(!solde&&d.echeance)?r2(reste/nb):0}; }
+  return {ops,rendu,annule,reste,solde,ech,nb,prevus,retard:!solde&&!!d.echeance&&d.echeance<todayISO(),parMois:(!solde&&d.echeance)?r2(reste/nb):0}; }
 function dettesActives(){ return (DB.dettes||[]).filter(d=>!detteEtat(d).solde); }
 /* l'objectif d'épargne du mois fixé pour ce compte (Budget → 🐷 Épargne) : il s'ajoute au remboursement */
 function objEpargne(acctId){ return Math.round(((DB.paye&&DB.paye.lines)||[]).filter(l=>l.acct===acctId).reduce((a,l)=>a+payeAmt(l),0)*100)/100; }
@@ -2263,8 +2309,14 @@ function detteCandidats(d){ const libre=t=>!(t.dette&&detteDe(t.dette))&&(t.date
   const L=d.genre==="auto"?DB.transactions.filter(t=>t.type==="transfer"&&t.to===d.compte&&libre(t))
     :DB.transactions.filter(t=>isArgentTx(t)&&(d.genre==="pret"?t.montant>0:t.montant<0)&&libre(t)&&(t.sousCategorie||"").trim().toLowerCase()===(d.personne||"").trim().toLowerCase());
   return L.sort((a,b)=>(b.date||"").localeCompare(a.date||"")); }
-function detteHTML(d,e){ const auto=d.genre==="auto", pret=d.genre==="pret", pct=d.clos?100:d.montant>0?Math.min(100,e.rendu/d.montant*100):0, s=n=>n>1?"s":"";
-  const quand=e.solde?`<span class="pos">✅ remboursé</span>`:!d.echeance?"sans échéance":e.retard?`<span class="chip retard">échéance dépassée · ${frDate(d.echeance)}</span>`:`à ${pret?"me ":""}rendre avant le <b>${frDate(d.echeance)}</b>`;
+/* 🎁 la part annulée, comme une ligne de plus dans les opérations de la dette (ce n'est pas une opération : rien ne bouge sur les comptes) */
+function detteAnnuleLigne(d,e){
+  return `<div class="lg"><div class="g"><b>${frDateJ(d.annuleLe||d.date)}</b> · 🎁 annulé${d.annuleRaison?" · "+escH(d.annuleRaison):""}
+      <div class="muted" style="font-size:11px">${d.genre==="pret"?"tu ne demandes plus":"on ne te demande plus"} cette somme · aucune opération</div></div>
+    <div class="d"><b style="color:var(--warn)">${eur(e.annule)}</b></div></div>`; }
+function detteHTML(d,e){ const auto=d.genre==="auto", pret=d.genre==="pret", s=n=>n>1?"s":"";
+  const pctR=d.montant>0?Math.min(100,e.rendu/d.montant*100):0, pctA=d.clos?100-pctR:(d.montant>0?Math.min(100-pctR,e.annule/d.montant*100):0);
+  const quand=e.solde?(e.annule>0.005?`<span class="pos">✅ soldé</span> · 🎁 ${pret?"prêt annulé":"dette annulée"}`:`<span class="pos">✅ remboursé</span>`):!d.echeance?"sans échéance":e.retard?`<span class="chip retard">échéance dépassée · ${frDate(d.echeance)}</span>`:`à ${pret?"me ":""}rendre avant le <b>${frDate(d.echeance)}</b>`;
   let plan="";
   if(!e.solde){
     if(!d.echeance) plan=`<div class="muted" style="font-size:12px;margin-top:6px">📆 Donne-lui une échéance (✏️) pour savoir combien ${pret?"on doit te rendre":"mettre"} chaque mois.</div>`;
@@ -2277,17 +2329,18 @@ function detteHTML(d,e){ const auto=d.genre==="auto", pret=d.genre==="pret", pct
   return `<div class="dette">
     <div class="dt1"><span>${auto?"🐷":pret?"🫴":"👤"} <b>${escH(detteNom(d))}</b></span><b class="${e.solde||pret?"pos":"neg"}">${e.solde?"✅":eur(e.reste)}</b></div>
     <div class="muted" style="font-size:12px">${eur(d.montant)} ${auto?"pris sur "+acctHTML(d.compte):(pret?"prêtés à <b>":"avancés par <b>")+escH(d.personne||"—")+"</b>"} le ${frDate(d.date)} · ${quand}</div>
-    <div class="track" style="margin-top:7px"><div class="fill" style="width:${pct}%;background:${e.solde?"var(--pos)":"var(--accent)"}"></div></div>
-    <div class="muted" style="font-size:11.5px;margin-top:3px">déjà ${pret?"rendu":"remboursé"} <b>${eur(e.rendu)}</b> sur ${eur(d.montant)}${e.solde?(d.clos&&e.rendu<d.montant-0.005?" · marqué « déjà remboursé » le "+frDate(d.clos):""):` · reste <b>${eur(e.reste)}</b>`}</div>
+    <div class="track" style="margin-top:7px;display:flex"><div class="fill" style="width:${pctR}%;background:${e.solde?"var(--pos)":"var(--accent)"}"></div>${pctA>0.05?`<div class="fill" title="annulé" style="width:${pctA}%;background:${d.clos?"var(--pos)":"var(--warn)"};opacity:${d.clos?1:.75}"></div>`:""}</div>
+    <div class="muted" style="font-size:11.5px;margin-top:3px">déjà ${pret?"rendu":"remboursé"} <b>${eur(e.rendu)}</b>${e.annule>0.005?` · 🎁 annulé <b style="color:var(--warn)">${eur(e.annule)}</b>${d.annuleLe?" le "+frDate(d.annuleLe):""}${d.annuleRaison?" ("+escH(d.annuleRaison)+")":""}`:""} sur ${eur(d.montant)}${e.solde?(d.clos&&e.rendu+e.annule<d.montant-0.005?" · marqué « déjà remboursé » le "+frDate(d.clos):""):` · reste <b>${eur(e.reste)}</b>`}</div>
     ${plan}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:9px">
       ${e.solde?"":b(pret?"↩️ On m'a rendu":"↩️ Rembourser","detteRembourser")}
       ${!e.solde&&e.ech.length&&!e.prevus.length?b("📅 Prévoir les mensualités","dettePlanifier"):""}
       ${!e.solde&&e.prevus.length&&Math.abs(e.prevus.reduce((a,f)=>a+Math.abs(f.montant),0)-e.reste)>0.005?b("🔄 Recalculer les mensualités","detteRecaler"):""}
-      ${e.solde?(d.clos?b("↩️ Rouvrir","detteRouvrir"):""):b(pret?"✅ Déjà rendu":"✅ Déjà remboursé","detteClore")}
+      ${e.solde?(d.clos||d.annule?b("↩️ Rouvrir","detteRouvrir"):""):b(pret?"✅ Déjà rendu":"✅ Déjà remboursé","detteClore")}
+      ${!e.solde&&!auto?b(pret?"🎁 Prêt annulé":"🎁 Dette annulée","detteAnnuler"):""}
       ${b("✏️","detteModifier")}${b("🗑️","detteSuppr","color:var(--neg)")}</div>
-    ${e.ops.length||cand.length?pli("dette:"+d.id,`<span class="tot"><span>📋 Opérations</span><span class="muted" style="font-size:12px">${e.ops.length} rattachée${s(e.ops.length)}${cand.length?" · "+cand.length+" à rattacher ?":""}</span></span>`,
-      e.ops.map(t=>detteOpLigne(d,t,true)).join("")
+    ${e.ops.length||cand.length||e.annule>0.005?pli("dette:"+d.id,`<span class="tot"><span>📋 Opérations</span><span class="muted" style="font-size:12px">${e.ops.length} rattachée${s(e.ops.length)}${e.annule>0.005?" + 🎁":""}${cand.length?" · "+cand.length+" à rattacher ?":""}</span></span>`,
+      (e.annule>0.005?[{annule:true,date:d.annuleLe||""}]:[]).concat(e.ops).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(t=>t.annule?detteAnnuleLigne(d,e):detteOpLigne(d,t,true)).join("")
       +(cand.length?`<div class="muted" style="font-size:11.5px;margin:8px 0 2px">Déjà saisi${s(cand.length)}, peut-être un remboursement de cette dette :</div>`+cand.map(t=>detteOpLigne(d,t,false)).join(""):""),"sous"):""}
   </div>`; }
 function viewDettes(){
@@ -2329,16 +2382,24 @@ function viewDettes(){
   </div>`;
   /* 🎁 l'argent reçu qui n'est rattaché à aucune dette : un don, rien à rendre */
   const dons=DB.transactions.filter(t=>isArgentTx(t)&&t.montant>0&&!(t.dette&&detteDe(t.dette))), parP={};
-  dons.forEach(t=>{ const p=(t.sousCategorie||"").trim(), k=p.toLowerCase(), g=parP[k]||(parP[k]={nom:p,tot:0,ops:[]}); g.tot+=t.montant; g.ops.push(t); });
-  const gens=Object.values(parP).sort((a,b)=>b.tot-a.tot);
+  const grp=p=>{ p=(p||"").trim(); const k=p.toLowerCase(); return parP[k]||(parP[k]={nom:p,tot:0,ops:[]}); };
+  dons.forEach(t=>{ const g=grp(t.sousCategorie); g.tot+=t.montant; g.ops.push(t); });
+  /* une dette annulée (🎁) : la part qu'on ne te demande plus revient à un don de cette personne */
+  const remises=L.filter(d=>d.genre==="dois"&&E[d.id].annule>0.005);
+  remises.forEach(d=>{ const g=grp(d.personne); g.tot+=E[d.id].annule; g.ops.push({remise:d,date:d.annuleLe||d.date,montant:E[d.id].annule}); });
+  const gens=Object.values(parP).sort((a,b)=>b.tot-a.tot), totDons=r2(Object.values(parP).reduce((a,g)=>a+g.tot,0));
   const donsCard=`<div class="card"><h2>🎁 Reçu sans avoir à rendre</h2>
-    <div class="muted" style="font-size:12px;margin-bottom:6px">L'argent qu'on t'a donné (catégorie 🤝 Argent). Si en fait tu dois le rendre, ouvre la personne et touche « 🤝 À rendre » : il passe dans tes dettes.</div>
-    ${gens.length?resume([["Total reçu en don",`<span class="pos">+${eur(dons.reduce((a,t)=>a+t.montant,0))}</span>`]])+gens.map(g=>pli("don:"+g.nom.toLowerCase(),
+    <div class="muted" style="font-size:12px;margin-bottom:6px">L'argent qu'on t'a donné (catégorie 🤝 Argent)${remises.length?", et ce qu'on ne te demande plus de rendre (🎁 dette annulée)":""}. Si en fait tu dois le rendre, ouvre la personne et touche « 🤝 À rendre » : il passe dans tes dettes.</div>
+    ${gens.length?resume([["Total reçu en don",`<span class="pos">+${eur(totDons)}</span>`]])+gens.map(g=>pli("don:"+g.nom.toLowerCase(),
       `<span class="tot"><span><b>${g.nom?"👤 "+escH(g.nom):"Sans personne"}</b> <span class="muted" style="font-size:11.5px">· ${g.ops.length}</span></span><span><b class="pos">+${eur(g.tot)}</b></span></span>`,
-      g.ops.sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(t=>`<div class="lg"><div class="g"><b>${frDateJ(t.date)}</b>${t.note?" · "+escH(t.note):""}<div class="muted" style="font-size:11px">${acctHTML(resolveAccount(t))}</div></div>
+      g.ops.sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(t=>t.remise
+        ?`<div class="lg"><div class="g"><b>${frDateJ(t.date)}</b> · 🎁 dette annulée · ${escH(detteNom(t.remise))}${t.remise.annuleRaison?" · "+escH(t.remise.annuleRaison):""}<div class="muted" style="font-size:11px">sur ${eur(t.remise.montant)} avancés le ${frDate(t.remise.date)} · aucune opération</div></div>
+        <div class="d"><b class="pos">+${eur(t.montant)}</b></div></div>`
+        :`<div class="lg"><div class="g"><b>${frDateJ(t.date)}</b>${t.note?" · "+escH(t.note):""}<div class="muted" style="font-size:11px">${acctHTML(resolveAccount(t))}</div></div>
         <div class="d"><b class="pos">+${eur(t.montant)}</b><button class="btn ghost sm" style="width:auto;padding:3px 9px;margin-left:6px;font-size:12px" onclick="detteDepuisOp('${t.id}')">🤝 À rendre</button></div></div>`).join(""),"sous")).join("")
       :`<div class="muted" style="font-size:12.5px">Rien pour l'instant.</div>`}</div>`;
-  const finiesCard=finies.length?`<div class="card">${pli("dettes:finies",`<span class="tot"><span>✅ Remboursées</span><span class="muted" style="font-size:12px">${finies.length} · ${eur(finies.reduce((a,d)=>a+(d.montant||0),0))}</span></span>`,finies.map(d=>detteHTML(d,E[d.id])).join(""))}</div>`:"";
+  const annuleFinies=r2(finies.reduce((a,d)=>a+E[d.id].annule,0));
+  const finiesCard=finies.length?`<div class="card">${pli("dettes:finies",`<span class="tot"><span>✅ ${annuleFinies>0.005?`Remboursées ou annulées <span class="muted" style="font-size:11.5px">· dont 🎁 ${eur(annuleFinies)} annulés</span>`:"Remboursées"}</span><span class="muted" style="font-size:12px">${finies.length} · ${eur(finies.reduce((a,d)=>a+(d.montant||0),0))}</span></span>`,finies.map(d=>detteHTML(d,E[d.id])).join(""))}</div>`:"";
   /* le formulaire : nouvelle dette, ou modification */
   const ed=UI.detteEdit?detteDe(UI.detteEdit):null, g=ed?ed.genre:DNEW.genre, v=ed||{};
   const epargnes=DB.accounts.filter(a=>a.active&&isSavings(a.id)), selC=v.compte||(epargnes.some(a=>a.id==="livretA")?"livretA":(epargnes[0]||{}).id);
@@ -2354,6 +2415,8 @@ function viewDettes(){
       :`<div class="field libwrap"><label>${g==="pret"?"À qui tu l'as prêté":"Qui te l'a avancé"}</label><input id="dtPers" autocomplete="off" placeholder="Ex : Maman" value="${escH(v.personne||"")}"><div class="libdrop" id="dtDrop"></div></div>`}</div>
     <div class="row2"><div class="field"><label>${g==="pret"?"À me rendre":"À rembourser"} avant le</label><input id="dtEch" type="date" value="${v.echeance||""}"></div>
       <div class="field"><label>… ou en combien de mois</label><input id="dtNb" type="number" min="1" step="1" inputmode="numeric" placeholder="Ex : 6" onchange="dtMois(this.value)"></div></div>
+    ${ed&&ed.annule?`<div class="row2"><div class="field"><label>🎁 Annulé (€) — 0 pour retirer</label><input id="dtAnnule" type="number" inputmode="decimal" step="0.01" min="0" value="${ed.annule}"></div>
+      <div class="field"><label>Pourquoi (facultatif)</label><input id="dtAnnuleRaison" autocomplete="off" placeholder="Ex : Pari gagné" value="${escH(ed.annuleRaison||"")}"></div></div>`:""}
     ${ed?"":`<label style="display:flex;align-items:flex-start;gap:8px;margin:0 0 10px;cursor:pointer;font-size:13px"><input type="checkbox" id="dtOp" checked style="width:auto;margin-top:3px" onchange="document.getElementById('dtVersBloc').style.display=this.checked?'block':'none'">
         <span>Enregistrer aussi ${g==="auto"?"le virement de l'épargne vers mon compte":g==="pret"?"l'argent sorti dans mes opérations":"l'argent reçu dans mes opérations"} <span class="muted">— décoche si tu l'as déjà saisi</span></span></label>
       <div class="field" id="dtVersBloc"><label>${g==="auto"?"Vers le compte":g==="pret"?"Sorti du compte":"Reçu sur le compte"}</label>${selBq(`<select id="dtVers">${DB.accounts.filter(a=>a.active&&(g!=="auto"||isLiquid(a.id))).map(a=>`<option value="${a.id}" ${a.id==="cc"?"selected":""}>${acctTxt(a)}</option>`).join("")}</select>`)}</div>`}
@@ -2361,7 +2424,7 @@ function viewDettes(){
     <button class="btn ghost" style="margin-top:8px" onclick="UI.detteEdit=null;UI.detteForm=false;render()">${ed?"Annuler":"Fermer"}</button></div>`;
   return form+recap+autoCard+doisCard+pretsCard+donsCard+finiesCard;
 }
-function dtMois(v){ const n=parseInt(v), d=document.getElementById("dtDate"), e=document.getElementById("dtEch"); if(n>0&&e) e.value=moisPlus((d&&d.value)||todayISO(),n); }
+function dtMois(v,de,vers){ const n=parseInt(v), d=document.getElementById(de||"dtDate"), e=document.getElementById(vers||"dtEch"); if(n>0&&e) e.value=moisPlus((d&&d.value)||todayISO(),n); }
 function allerFormDette(){ const el=document.getElementById("detteForm"); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); }
 function detteModifier(id){ UI.detteEdit=id; render(); allerFormDette(); }
 function addDette(){
@@ -2374,6 +2437,8 @@ function addDette(){
   else { pers=g("dtPers").value.trim(); if(!pers){ toast("Indique la personne"); return; }
     pers=personnesArgent().find(s=>s.toLowerCase()===pers.toLowerCase())||pers; }   /* « maman » = « Maman » : l'écriture de la liste */
   if(ed){ Object.assign(ed,{nom,montant:m,date,echeance:ech,majLe:maintenantISO()}); if(genre==="auto") ed.compte=compte; else ed.personne=pers;
+    if(g("dtAnnule")){ const a=Math.round((parseFloat(String(g("dtAnnule").value||"").replace(",","."))||0)*100)/100;   /* 🎁 la part annulée se corrige ici */
+      if(a>0){ ed.annule=a; ed.annuleRaison=(g("dtAnnuleRaison").value||"").trim(); } else { delete ed.annule; delete ed.annuleLe; delete ed.annuleRaison; } }
     UI.detteEdit=null; UI.detteForm=false; toast("Modifié ✅"); dettesAjusterDire(); save(); render(); return; }
   const d={id:uid(),genre,nom,montant:m,date,echeance:ech,majLe:maintenantISO()}; if(genre==="auto") d.compte=compte; else d.personne=pers;
   let obj=null;
@@ -2422,12 +2487,39 @@ function dettesAjusterDire(){ const r=dettesAjuster();
   if(r.retire) toast("Tout est remboursé 🎉 "+r.retire+" mensualité"+(r.retire>1?"s":"")+" prévue"+(r.retire>1?"s":"")+" retirée"+(r.retire>1?"s":""));
   else if(r.recale) toast("Mensualités recalculées sur ce qu'il reste ✅");
   return r; }
+/* l'opération d'emprunt d'une dette (l'argent reçu, le prêt versé, le retrait d'épargne) a été corrigée : la dette suit.
+   Montant : de la même différence (une dette peut avoir plusieurs emprunts) ; date et personne : si c'étaient les mêmes. */
+function detteSuitEmprunt(old,obj){
+  if(!old||!obj||!obj.dette||old.dette!==obj.dette) return; const d=detteDe(obj.dette); if(!d) return;
+  if(estRembDette(d,old)||estRembDette(d,obj)) return;   /* un remboursement : detteEtat() le recompte tout seul */
+  const r2=x=>Math.round(x*100)/100, diff=r2(Math.abs(obj.montant)-Math.abs(old.montant)); let ch=false;
+  if(Math.abs(diff)>0.005&&(d.montant||0)+diff>0.005){ d.montant=r2((d.montant||0)+diff); ch=true; }
+  if(obj.date&&obj.date!==old.date&&old.date===d.date){ d.date=obj.date; ch=true; }
+  if(d.genre!=="auto"&&obj.sousCategorie&&obj.sousCategorie!==old.sousCategorie&&(old.sousCategorie||"").toLowerCase()===(d.personne||"").toLowerCase()){ d.personne=obj.sousCategorie; ch=true; }
+  if(ch) d.majLe=maintenantISO(); }
 /* ✅ Déjà remboursé : la dette est soldée sans chercher l'opération qui l'a remboursée (un seul virement a pu en rembourser plusieurs) */
 function detteClore(id){ const d=detteDe(id); if(!d) return;
   const copie=DB.future.filter(f=>f.dette===id&&f.statut==="prévu");
   d.clos=todayISO(); d.majLe=maintenantISO(); dettesAjuster(); save(); render();
   toast("Marqué comme remboursé ✅",{libelle:"↩️ Annuler",fn:()=>{ delete d.clos; d.majLe=maintenantISO(); copie.forEach(f=>{ if(!DB.future.some(x=>x.id===f.id)) DB.future.push(f); }); save(); render(); }}); }
-function detteRouvrir(id){ const d=detteDe(id); if(!d) return; delete d.clos; d.majLe=maintenantISO(); save(); render(); toast("Rouverte ↩️"); }
+/* 🎁 Dette annulée (remise de dette) : la personne ne demande plus ce qui reste (un pari gagné, un cadeau…).
+   Rien n'est ajouté aux opérations : aucune dépense ni entrée, l'argent a déjà bougé quand il a été avancé et rendu.
+   d.annule = le montant annulé (figé : si un remboursement disparaît, la dette se rouvre de ce montant-là),
+   d.annuleLe = la date, d.annuleRaison = pourquoi (facultatif). */
+async function detteAnnuler(id){ const d=detteDe(id); if(!d||d.genre==="auto") return; const e=detteEtat(d); if(e.solde) return;
+  const pret=d.genre==="pret", qui=d.personne||"la personne", reste=e.reste;
+  const raison=await demanderTexte(`${pret?"Tu ne demandes plus à "+qui:qui+" ne te demande plus"} les ${eur(reste)} qui restent ?\n`
+    +`« ${detteNom(d)} » : ${eur(e.rendu)} ${pret?"rendus":"remboursés"}${e.annule>0.005?" + "+eur(e.annule)+" déjà annulés":""} + ${eur(reste)} annulés = ${eur(d.montant)}. ${pret?"Le prêt est alors soldé":"La dette est alors soldée"}.\n`
+    +`Aucune dépense ni entrée n'est ajoutée : ton budget et tes comptes ne bougent pas.\n\nPourquoi ? (facultatif, ex : pari gagné)`,
+    d.annuleRaison||"",{oui:"🎁 Annuler "+eur(reste),non:"Retour"});
+  if(raison===null) return;
+  const avant={annule:d.annule,annuleLe:d.annuleLe,annuleRaison:d.annuleRaison}, copie=DB.future.filter(f=>f.dette===id&&f.statut==="prévu");
+  d.annule=Math.round(((e.annule||0)+reste)*100)/100; d.annuleLe=todayISO(); d.annuleRaison=String(raison).trim(); d.majLe=maintenantISO();
+  dettesAjuster(); save(); render();
+  toast(`🎁 ${eur(reste)} annulés · « ${detteNom(d)} » soldé${pret?"":"e"} ✅`,{libelle:"↩️ Annuler",fn:()=>{
+    ["annule","annuleLe","annuleRaison"].forEach(k=>{ if(avant[k]===undefined) delete d[k]; else d[k]=avant[k]; }); d.majLe=maintenantISO();
+    copie.forEach(f=>{ if(!DB.future.some(x=>x.id===f.id)) DB.future.push(f); }); save(); render(); }}); }
+function detteRouvrir(id){ const d=detteDe(id); if(!d) return; delete d.clos; delete d.annule; delete d.annuleLe; delete d.annuleRaison; d.majLe=maintenantISO(); save(); render(); toast("Rouverte ↩️"); }
 function detteRattacher(id,txId){ const t=DB.transactions.find(x=>x.id===txId); if(!t||!detteDe(id)) return;
   t.dette=id; t.majLe=maintenantISO(); toast("Rattaché ✅"); dettesAjusterDire(); save(); render(); }
 function detteDetacher(txId){ const t=DB.transactions.find(x=>x.id===txId); if(!t) return;
@@ -4180,13 +4272,14 @@ function ouvrirModale(texte,opts){
   return new Promise(res=>{
     const ferme=(val)=>{ if(MODALE!==obj) return; MODALE=null; document.removeEventListener("keydown",touche,true); fond.remove(); res(val); };
     const obj={ferme};
-    const touche=(e)=>{ if(e.key==="Escape"){ e.preventDefault(); ferme(opts.saisie?null:false); }
+    const sansRep=("echap" in opts)?opts.echap:(opts.saisie?null:false);   /* Échap ou clic à côté : comme « non », sauf opts.echap (ex : null = ni oui ni non) */
+    const touche=(e)=>{ if(e.key==="Escape"){ e.preventDefault(); ferme(sansRep); }
       else if(e.key==="Enter"&&(champ||document.activeElement===document.body||document.activeElement.classList.contains("moui"))){ e.preventDefault(); valide(); } };
     const valide=()=>ferme(opts.saisie?(champ?champ.value:""):true);
     MODALE=obj;
     fond.querySelector(".moui").onclick=valide;
     fond.querySelector(".mno").onclick=()=>ferme(opts.saisie?null:false);
-    fond.onclick=(e)=>{ if(e.target===fond) ferme(opts.saisie?null:false); };
+    fond.onclick=(e)=>{ if(e.target===fond) ferme(sansRep); };
     document.addEventListener("keydown",touche,true);
     setTimeout(()=>{ if(champ){ champ.focus(); champ.select(); } else fond.querySelector(".moui").focus(); },30);
   });
