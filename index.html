@@ -84,6 +84,10 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
   -webkit-backdrop-filter:saturate(160%) blur(14px);backdrop-filter:saturate(160%) blur(14px);
   color:var(--text);padding:12px 18px;display:flex;align-items:center;gap:10px;}
 .topbar h1{font-size:19px;margin:0;font-weight:800;letter-spacing:-.2px}
+/* Logo de l'app : la pièce € des icônes (docs/logo/), à la taille du texte qui l'entoure */
+.logo-piece{display:inline-block;width:1.15em;height:1.15em;vertical-align:-.22em;
+  background:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='p' x1='.15' y1='.1' x2='.85' y2='.95'><stop offset='0' stop-color='%2372dccb'/><stop offset='.55' stop-color='%2336b3a4'/><stop offset='1' stop-color='%231d8f81'/></linearGradient></defs><g transform='translate(50 50) scale(.1756) translate(-512 -512)'><circle cx='512' cy='512' r='262' fill='url(%23p)'/><circle cx='512' cy='512' r='212' fill='none' stroke='white' stroke-opacity='.3' stroke-width='10'/><g fill='none' stroke='white' stroke-linecap='round'><path d='M630 418A132 132 0 1 0 630 606' stroke-width='54'/><path d='M372 480H560M372 548H540' stroke-width='42'/></g></g></svg>") center/contain no-repeat;
+  filter:drop-shadow(0 2px 4px rgba(29,138,125,.28))}
 .topbar .sub{font-size:11.5px;color:var(--muted);font-weight:600}
 .topbar .spacer{flex:1}
 .topbar .ver{font-size:10.5px;font-weight:700;color:var(--muted);background:var(--mint);border:1px solid var(--liseret);
@@ -416,7 +420,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1>💰 Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v26 · 24/11</span></h1>
+      <h1><span class="logo-piece" aria-hidden="true"></span> Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v27 · 24/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -783,7 +787,7 @@ setInterval(relireCloud,20000);
 
 /* ---------- Écran de connexion ---------- */
 function showLogin(){ const o=document.getElementById("authOverlay"); if(!o)return; o.classList.add("show");
-  o.innerHTML = `<div class="authcard"><div class="authlogo">💰</div><h2>Mon budget</h2>
+  o.innerHTML = `<div class="authcard"><div class="authlogo"><span class="logo-piece" aria-hidden="true"></span></div><h2>Mon budget</h2>
       <p class="muted">Connecte-toi pour synchroniser tes données sur tous tes appareils.</p>
       <div class="field"><label>E-mail</label><input id="authEmail" type="email" inputmode="email" autocomplete="username" placeholder="ton@email.com" value="${AUTH.email||''}"></div>
       <div class="field"><label>Mot de passe</label><input id="authPwd" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')signin(this)"></div>
