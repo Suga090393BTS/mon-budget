@@ -420,7 +420,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1><span class="logo-piece" aria-hidden="true"></span> Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v28 · 28/11</span></h1>
+      <h1><span class="logo-piece" aria-hidden="true"></span> Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v29 · 28/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -1607,7 +1607,8 @@ function viewSaisie(){
       <button id="sEnt" class="${t==='ent'?'on-ent':''}" onclick="setType('ent')">↑ Entrée</button>
       <button id="sTr" class="${t==='tr'?'on-tr':''}" onclick="setType('tr')">⇄ Transfert</button>
     </div>
-    ${e.dette&&detteDe(e.dette)?`<div class="muted" style="font-size:12px;margin:-4px 0 12px">🔗 Rattachée à ${detteDe(e.dette).genre==="auto"?"l'autocrédit":detteDe(e.dette).genre==="pret"?"le prêt":"la dette"} « <b>${escH(detteNom(detteDe(e.dette)))}</b> ».</div>`:""}
+    ${e.dette&&detteDe(e.dette)?`<div id="lienDette" class="muted" style="font-size:12px;margin:-4px 0 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span>🔗 Rattachée ${detteDe(e.dette).genre==="auto"?"à l'autocrédit":detteDe(e.dette).genre==="pret"?"au prêt":"à la dette"} « <b>${escH(detteNom(detteDe(e.dette)))}</b> ».</span>
+      <button type="button" class="btn ghost sm" style="width:auto;padding:3px 10px;font-size:12px" title="Ce n'est pas ça : l'opération ne compte plus pour cette dette" onclick="saisieDetacher()">✂️ Détacher</button></div>`:""}
     ${body}
     <button class="btn" onclick="saveTx()">${editing?"💾 Enregistrer":"✅ Ajouter"}</button>
     ${editing?`<button class="btn ghost" onclick="go(UI.retour||'tx')" style="margin-top:8px">Annuler</button>`:""}
@@ -1685,6 +1686,24 @@ function aRendreMaj(){ const box=document.getElementById("aRendre"); if(!box) re
       <div class="muted" style="font-size:12px;margin-top:-6px">👤 La dette sera notée dans <b>À venir → 🤝 Dettes</b>, avec cette opération.</div>`
     :v===false?`<div class="muted" style="font-size:12px">🎁 Rien à rendre : il ira dans « Reçu sans avoir à rendre ».</div>`:""}</div>`; }
 function setARendre(v){ UI.aRendre=v; aRendreMaj(); }
+/* ✂️ Détacher, sur la page Modifier : l'opération n'est plus rattachée à sa dette (ex : un remboursement transformé en prêt par erreur
+   avec « 🫴 À me rendre »). Si c'est elle qui a fait naître la dette et qu'il n'y a rien d'autre dessus (même règle que delTx), la dette
+   part avec elle, après confirmation. Le formulaire n'est pas redessiné (rien de ce qui est tapé ne se perd) : seules les questions
+   « Ça rembourse une dette ? » / « Je dois le rendre ? » apparaissent. Le lien est retiré tout de suite, même si on annule la modification. */
+async function saisieDetacher(){ const e=UI.edit; if(!e||!e.dette) return; const d=detteDe(e.dette);
+  const t=e.id?DB.transactions.find(x=>x.id===e.id):null;
+  const quoi=!d?"":d.genre==="auto"?"l'autocrédit":d.genre==="pret"?"le prêt":"la dette", deQuoi=!d?"":d.genre==="auto"?"de l'autocrédit":d.genre==="pret"?"du prêt":"de la dette", fem=!!d&&d.genre==="dois";
+  const seule=!!(t&&d&&!estRembDette(d,t)&&DB.transactions.filter(x=>x.dette===d.id).length===1&&!DB.future.some(f=>f.dette===d.id)&&!d.clos&&!d.annule);
+  if(seule&&!await demander(`Détacher cette opération ${deQuoi} « ${detteNom(d)} » ?\nC'est elle qui a créé ${quoi} : ${quoi} est supprimé${fem?"e":""} aussi. L'opération, elle, reste dans tes opérations.`,{oui:"✂️ Détacher",non:"Annuler"})) return;
+  const avant=e.dette, dCopie=seule?JSON.parse(JSON.stringify(d)):null;
+  delete e.dette; if(t){ delete t.dette; t.majLe=maintenantISO(); }
+  if(dCopie) DB.dettes=DB.dettes.filter(x=>x.id!==dCopie.id);
+  if(t) save();
+  UI.rembDette=null; UI.rembAnnule=false; UI.aRendre=null;
+  const l=document.getElementById("lienDette"); if(l) l.remove(); aRendreMaj();
+  toast(dCopie?`✂️ Détachée · ${quoi} « ${detteNom(dCopie)} » est supprimé${fem?"e":""}`:"✂️ Détachée : elle ne compte plus pour cette dette",{libelle:"↩️ Annuler",fn:()=>{
+    e.dette=avant; if(t){ t.dette=avant; t.majLe=maintenantISO(); } if(dCopie&&!detteDe(dCopie.id)) DB.dettes.push(dCopie);
+    if(t) save(); render(); }}); }
 /* à la modification d'une dépense : on la garde telle quelle et on prépare une nouvelle ligne de remboursement (même enveloppe) */
 function rembNouvelleLigne(){ const v=id=>{ const el=document.getElementById(id); return el?el.value:""; };
   UI.edit={date:todayISO(), note:"", categorie:v("fCat"), sousCategorie:v("fSub")==="__new__"?"":v("fSub"), compte:v("fCompte")};   /* moyen : celui d'une entrée par défaut */
