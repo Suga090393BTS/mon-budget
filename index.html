@@ -420,7 +420,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1><span class="logo-piece" aria-hidden="true"></span> Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v30 · 28/11</span></h1>
+      <h1><span class="logo-piece" aria-hidden="true"></span> Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v31 · 28/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -1652,7 +1652,7 @@ function catHint(){ const h=document.getElementById("catHint"), cs=document.getE
 /* les questions de la Saisie ne se posent que sur de l'Argent (dépense ou entrée) pas encore rattaché à une dette */
 function saisieArgentLibre(){ const cs=document.getElementById("fCat");
   return !!(cs&&(UI.type==="dep"||UI.type==="ent")&&catGenre(cs.value)==="argent"&&!(UI.edit&&UI.edit.dette)); }
-function saisieQuestionsRaz(){ UI.aRendre=null; UI.rembDette=null; UI.rembAnnule=false; }   /* réponses oubliées : autre page, autre opération, enregistrée */
+function saisieQuestionsRaz(){ UI.aRendre=null; UI.rembDette=null; UI.rembAnnule=false; UI.rembRaison=""; }   /* réponses oubliées : autre page, autre opération, enregistrée */
 /* un prêt à cette personne : d'abord « elle te rend ? », et « Je dois le rendre ? » seulement si non (L : rembDettesDispo(), déjà calculée) */
 function aRendreVisible(L){ if(UI.type!=="ent"||!saisieArgentLibre()) return false;
   L=L||rembDettesDispo(); return !(L.length&&UI.rembDette!==false); }
@@ -1660,6 +1660,8 @@ function aRendrePers(){ const ss=document.getElementById("fSub"); return ss&&ss.
 /* Dépense d'Argent vers une personne à qui je dois de l'argent (ou entrée d'une personne à qui j'ai prêté) :
    « Ça rembourse une dette ? » — oui = l'opération est rattachée à la dette, dont le reste baisse d'autant.
    UI.rembDette : null (pas encore répondu), false (non) ou l'id de la dette choisie.
+   UI.rembAnnule : false, ou l'id de la dette dont « 🎁 Et le reste est annulé » est coché (la case d'une autre dette reste décochée) ;
+   UI.rembRaison : le « pourquoi » tapé, gardé quand le bloc est redessiné (changement de personne, de dette…).
    Aussi à la modification d'une opération rattachée à rien ; jamais quand elle l'est déjà. */
 function rembDettesDispo(){ const p=clePers(aRendrePers()); if(!p||!saisieArgentLibre()) return [];
   const g=UI.type==="dep"?"dois":"pret";
@@ -1667,17 +1669,16 @@ function rembDettesDispo(){ const p=clePers(aRendrePers()); if(!p||!saisieArgent
 function rembChoisie(L){ L=L||rembDettesDispo(); return UI.rembDette&&L.find(d=>d.id===UI.rembDette)||null; }
 function setRembDette(v){ const L=rembDettesDispo(); UI.rembDette=v===true?((rembChoisie(L)||L[0]||{}).id||null):v; aRendreMaj(); }
 function rembDetteHTML(L){ L=L||rembDettesDispo(); if(!L.length) return "";
-  const dep=UI.type==="dep", p=aRendrePers(), d=rembChoisie(L), non=UI.rembDette===false;
+  const dep=UI.type==="dep", p=aRendrePers(), d=rembChoisie(L), non=UI.rembDette===false, annule=!!d&&UI.rembAnnule===d.id;
   const lib=x=>`${escH(detteNom(x))} · reste ${eur(detteEtat(x).reste)}`;
   return `<div class="field"><label style="color:var(--text);font-size:13.5px">↩️ ${dep?`Ça rembourse ce que tu dois à ${escH(p)} ?`:`${escH(p)} te rend de l'argent que tu lui as prêté ?`}</label>
     <div class="seg" style="margin-bottom:8px"><button type="button" class="${non?"on-tr":""}" onclick="setRembDette(false)">Non</button><button type="button" class="${d?"on-ent":""}" onclick="setRembDette(true)">Oui, ${dep?"je rembourse":"on me rend"}</button></div>
     ${d?(L.length>1?`<select id="fRembDette" aria-label="Quelle dette ?" style="margin-bottom:6px" onchange="setRembDette(this.value)">${L.map(x=>`<option value="${x.id}" ${x.id===d.id?"selected":""}>${lib(x)}</option>`).join("")}</select>`:"")
       +`<div class="muted" style="font-size:12px">🔗 Rattaché à « <b>${escH(detteNom(d))}</b> » (reste ${eur(detteEtat(d).reste)}) : ce montant ${dep?"est retiré de ce que tu dois":"est retiré de ce qu'on te doit"}. Ce n'est pas une dépense d'enveloppe.</div>`
-      +`<label style="display:flex;align-items:flex-start;gap:8px;margin:9px 0 0;cursor:pointer;font-size:13px"><input type="checkbox" id="fRembAnnule" ${UI.rembAnnule?"checked":""} style="width:auto;margin-top:3px" onchange="UI.rembAnnule=this.checked;aRendreMaj()">
+      +`<label style="display:flex;align-items:flex-start;gap:8px;margin:9px 0 0;cursor:pointer;font-size:13px"><input type="checkbox" id="fRembAnnule" ${annule?"checked":""} style="width:auto;margin-top:3px" onchange="UI.rembAnnule=this.checked?'${d.id}':false;aRendreMaj()">
         <span>🎁 Et le reste est annulé <span class="muted">— ${dep?escH(p)+" ne te demande plus rien après ça":"tu ne demandes plus rien après ça"}</span></span></label>`
-      +(UI.rembAnnule?`<input id="fRembRaison" autocomplete="off" placeholder="Pourquoi (facultatif) — ex : pari gagné" style="margin-top:8px" value="${escH(rembRaisonGardee())}">`:"")
+      +(annule?`<input id="fRembRaison" autocomplete="off" placeholder="Pourquoi (facultatif) — ex : pari gagné" style="margin-top:8px" value="${escH(UI.rembRaison||"")}" oninput="UI.rembRaison=this.value">`:"")
       :non?`<div class="muted" style="font-size:12px">Pas rattaché : ${dep?"les dettes envers "+escH(p)+" ne bougent pas":"le prêt ne bouge pas"}.</div>`:""}</div>`; }
-function rembRaisonGardee(){ const el=document.getElementById("fRembRaison"); return el?el.value:""; }   /* gardée quand le bloc est redessiné */
 function aRendreHTML(){ const v=UI.aRendre, p=aRendrePers(), ech=document.getElementById("fEch"), echV=ech?ech.value:"";   /* l'échéance tapée est gardée */
   return `<div class="field"><label style="color:var(--text);font-size:13.5px">🤝 Je dois le rendre${p?" à "+escH(p):""} ?</label>
     <div class="seg" style="margin-bottom:8px"><button type="button" class="${v===false?"on-ent":""}" onclick="setARendre(false)">Non, c'est un don</button><button type="button" class="${v===true?"on-dep":""}" onclick="setARendre(true)">Oui, à rendre</button></div>
@@ -1828,13 +1829,16 @@ async function saveTx(){
   /* ↩️ de l'argent rendu à quelqu'un à qui je dois (ou rendu par quelqu'un à qui j'ai prêté) : ça rembourse une dette ? */
   const LR=rembDettesDispo();
   let rd=rembChoisie(LR);
+  /* 🎁 le reste n'est annulé que si la case de CETTE dette est affichée et cochée au moment d'enregistrer (lu avant toute fenêtre :
+     une dette choisie dans la fenêtre n'a jamais montré sa case, une réponse donnée pour une autre personne ou une autre dette ne compte pas) */
+  const caseA=document.getElementById("fRembAnnule"), annuleVu=!!(rd&&caseA&&caseA.checked&&UI.rembAnnule===rd.id), raison=annuleVu?(UI.rembRaison||""):"";
   if(LR.length&&!rd&&UI.rembDette!==false&&!eid){ const d0=LR[0], dep=UI.type==="dep";   /* pas répondu (ou réponse pour une autre personne) */
     const oui=await demander(`${dep?`Ces ${eur(m)} remboursent ce que tu dois à ${pers} ?`:`${pers} te rend ces ${eur(m)} sur ce que tu lui as prêté ?`}\nOui : rattaché à « ${detteNom(d0)} » (reste ${eur(detteEtat(d0).reste)}), son reste baisse d'autant.${LR.length>1?"\nUne autre dette ? Ferme cette fenêtre et choisis-la dans le formulaire.":""}\nNon : ${dep?"rien n'est remboursé":"le prêt ne bouge pas"}.`,{oui:dep?"Oui, je rembourse":"Oui, on me rend",non:"Non"});
     if(oui==null) return;   /* fenêtre fermée : rien n'est enregistré */
     UI.rembDette=oui?d0.id:false; aRendreMaj(); rd=oui?d0:null; }
   if(rd){ const e=detteEtat(rd), apres=r2(Math.max(0,e.reste-m)), pret=rd.genre==="pret";
     obj.dette=rd.id; detail=`↩️ « ${detteNom(rd)} » : `;
-    if(UI.rembAnnule&&apres>0.005){ detteRemise(rd,e,apres,rembRaisonGardee());
+    if(annuleVu&&apres>0.005){ detteRemise(rd,e,apres,raison);
       detail+=`${eur(m)} ${pret?"rendus":"remboursés"} · 🎁 ${eur(apres)} annulés · soldé${detteMots(rd).e} ✅`; }
     else detail+=apres>0.005?`reste ${eur(apres)}`:`${pret?"rendu":"remboursée"} en entier 🎉`; }
   /* 🤝 de l'argent reçu d'une personne : je dois le rendre ? (oui = la dette est créée avec l'opération) */
@@ -2000,25 +2004,32 @@ function renderTxList(){
 }
 function editTx(id){ const t=DB.transactions.find(x=>x.id===id); if(!t) return; UI.retour=UI.tab==="saisie"?UI.retour:UI.tab; UI.edit=t; saisieQuestionsRaz(); UI.type=t.type==="transfer"?"tr":(t.montant<0?"dep":"ent"); UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
 /* Supprimer une ligne isolée ne pose pas de question : elle part tout de suite et le toast propose « Annuler »
-   pendant quelques secondes (la copie garde son détail espèces, qui est remis tel quel). */
+   pendant quelques secondes, même quand il faut recompter une caisse. « Annuler » remet l'opération telle quelle (avec son
+   détail espèces), le décompte des caisses touchées tel qu'il était avant (copié ici : exact même si un rouleau a été cassé),
+   et la dette qui était partie avec elle. */
 function delTx(id){
   const i=DB.transactions.findIndex(x=>x.id===id); if(i<0) return;
   const copie=JSON.parse(JSON.stringify(DB.transactions[i]));
   /* l'opération qui a fait naître une dette (ex : « Je dois le rendre ? » oui, à la Saisie) et rien d'autre dessus (detteNeeDe) :
      la dette part avec elle — « Annuler » remet les deux */
   const d=copie.dette&&detteDe(copie.dette), dSuppr=detteNeeDe(d,copie)?d:null;
+  const caisses=Object.keys(effetsEspeces(copie)).map(acct).filter(Boolean)
+    .map(a=>({id:a.id, cash:a.cash===undefined?undefined:JSON.parse(JSON.stringify(a.cash)), cale:a.cashCaleAt}));
   const r=ajusterDecomptes(DB.transactions[i],null);   /* on remet le décompte de caisse comme avant, ou on propose de recompter */
   DB.transactions.splice(i,1);
   if(dSuppr) DB.dettes=DB.dettes.filter(x=>x.id!==dSuppr.id);
   save();
-  const msg=dSuppr?`Supprimé · avec sa dette « ${detteNom(dSuppr)} »`:"Supprimé";
-  if(r.recompter.length){ toast(msg); UI.recountQueue=r.recompter; UI.afterRecount="tx"; nextRecount(); return; }
+  const recompte=r.recompter.length>0, msg=(dSuppr?`Supprimé · avec sa dette « ${detteNom(dSuppr)} »`:"Supprimé")
+    +(recompte?` · ⚠️ recompte ${r.recompter.map(acctName).join(" et ")}`:"");   /* avant nextRecount(), qui vide la liste */
+  if(recompte){ UI.recountQueue=r.recompter.slice(); UI.afterRecount="tx"; nextRecount(); }   /* on part recompter… */
   toast(msg,{libelle:"↩️ Annuler",fn:()=>{
-    DB.transactions.splice(Math.min(i,DB.transactions.length),0,copie); ajusterDecomptes(null,copie);
+    DB.transactions.splice(Math.min(i,DB.transactions.length),0,copie);
+    caisses.forEach(c=>{ const a=acct(c.id); if(!a||a.cashCaleAt!==c.cale) return;   /* un comptage fait entre-temps fait foi */
+      if(c.cash===undefined) delete a.cash; else a.cash=c.cash; });
     if(dSuppr&&!detteDe(dSuppr.id)) DB.dettes.push(dSuppr);
-    save(); renderTxList(); toast("Remis ✅"); }});
-  renderTxList(); }
-
+    save(); toast("Remis ✅");
+    if(recompte){ UI.recountQueue=[]; UI.afterRecount=null; go("tx"); } else renderTxList(); }});   /* … plus besoin de recompter */
+  if(!recompte) renderTxList(); }
 /* ===================== À VENIR (paiements futurs) ===================== */
 let FNEW={type:"dep"};
 const FREQ_LBL={mensuel:"🔁 mensuel",trimestriel:"🔁 trimestriel",annuel:"🔁 annuel"};
