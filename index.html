@@ -420,7 +420,7 @@ setTimeout(function(){
     <div>
       <!-- VERSION de l'app : à augmenter (+1, avec la date) à chaque publication, ici ET dans calculatrice.html.
            Permet de vérifier d'un coup d'œil que le téléphone a bien reçu la dernière version. -->
-      <h1><span class="logo-piece" aria-hidden="true"></span> Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v27 · 24/11</span></h1>
+      <h1><span class="logo-piece" aria-hidden="true"></span> Mon budget <span class="ver" title="Version de l'app — change à chaque publication">v28 · 28/11</span></h1>
       <div class="sub" id="topSub">Chargement…</div>
     </div>
     <div class="spacer"></div>
@@ -1302,7 +1302,7 @@ function renderNav(){
     +`<button class="${UI.tab==='reglages'?'active':''}" onclick="go('reglages')" style="margin-top:auto"><span class="ic">⚙️</span>Réglages</button>`;
   document.getElementById("bottomnav").innerHTML=NAV.map(([k,l,i,s])=>`<button class="${UI.tab===k?'active':''}" onclick="go('${k}')"><span class="ic">${i}</span>${s}</button>`).join("");
 }
-function go(tab){ UI.tab=tab; UI.avForm=false; UI.detteForm=false; UI.detteEdit=null; UI.edit=null; UI.retour=null; UI.objDepuis=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; UI.espRecompter=false; UI.fusionCat=null; UI.aRendre=null; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
+function go(tab){ UI.tab=tab; UI.avForm=false; UI.detteForm=false; UI.detteEdit=null; UI.edit=null; UI.retour=null; UI.objDepuis=null; UI.recountActive=false; UI.serieOpen=null; UI.orgComptes=false; UI.espRecompter=false; UI.fusionCat=null; UI.aRendre=null; UI.rembDette=null; UI.rembAnnule=false; if(tab==="saisie")UI.type="dep"; renderNav(); render(); window.scrollTo(0,0); }
 function render(){
   const m=document.getElementById("main");
   const v={dash:viewDash,saisie:viewSaisie,tx:viewTx,avenir:viewAvenir,budget:viewBudget,ia:viewIA,rapport:viewRapport,objectifs:viewObjectifs,besoins:viewBesoins,reglages:viewReglages,compteur:viewCompteur,crypto:viewCrypto,horaires:viewHoraires}[UI.tab]||viewDash;
@@ -1646,15 +1646,39 @@ function catHint(){ const h=document.getElementById("catHint"), cs=document.getE
   h.innerHTML=txt; h.style.display=txt?"":"none"; aRendreMaj(); }
 /* Entrée d'Argent (quelqu'un te donne de l'argent) : « Je dois le rendre ? » tout de suite.
    Oui = la dette « je dois » est créée avec l'opération (À venir → 🤝 Dettes) ; non = un don. UI.aRendre : null (pas encore répondu), true, false.
-   Pas à la modification d'une opération, ni quand elle rembourse déjà une dette (↩️ On m'a rendu). */
+   Aussi à la modification d'une entrée rattachée à rien (sans fenêtre si on ne répond pas) ; jamais quand elle l'est déjà (↩️ On m'a rendu). */
 function aRendreVisible(){ const cs=document.getElementById("fCat");
-  return !!(cs&&UI.type==="ent"&&!(UI.edit&&(UI.edit.id||UI.edit.dette))&&catGenre(cs.value)==="argent"); }
+  return !!(cs&&UI.type==="ent"&&!(UI.edit&&UI.edit.dette)&&catGenre(cs.value)==="argent"&&!(rembDettesDispo().length&&UI.rembDette!==false)); }   /* un prêt à cette personne : d'abord « elle te rend ? », puis seulement si non */
 function aRendrePers(){ const ss=document.getElementById("fSub"); return ss&&ss.value&&ss.value!=="__new__"?ss.value:""; }
+/* Dépense d'Argent vers une personne à qui je dois de l'argent (ou entrée d'une personne à qui j'ai prêté) :
+   « Ça rembourse une dette ? » — oui = l'opération est rattachée à la dette, dont le reste baisse d'autant.
+   UI.rembDette : null (pas encore répondu), false (non) ou l'id de la dette choisie.
+   Aussi à la modification d'une opération rattachée à rien ; jamais quand elle l'est déjà. */
+function rembDettesDispo(){ const cs=document.getElementById("fCat"), p=aRendrePers().trim().toLowerCase();
+  if(!cs||!p||catGenre(cs.value)!=="argent"||(UI.type!=="dep"&&UI.type!=="ent")||(UI.edit&&UI.edit.dette)) return [];
+  const g=UI.type==="dep"?"dois":"pret";
+  return (DB.dettes||[]).filter(d=>d.genre===g&&(d.personne||"").trim().toLowerCase()===p&&!detteEtat(d).solde)
+    .sort((a,b)=>(a.echeance||"9999").localeCompare(b.echeance||"9999")||(a.date||"").localeCompare(b.date||"")); }
+function rembChoisie(){ const L=rembDettesDispo(); return UI.rembDette&&L.find(d=>d.id===UI.rembDette)||null; }
+function setRembDette(v){ const L=rembDettesDispo(); UI.rembDette=v===true?((rembChoisie()||L[0]||{}).id||null):v; aRendreMaj(); }
+function rembDetteHTML(){ const L=rembDettesDispo(); if(!L.length) return "";
+  const dep=UI.type==="dep", p=aRendrePers(), d=rembChoisie(), v=d?d.id:(UI.rembDette===false?false:null);
+  const lib=x=>`${escH(detteNom(x))} · reste ${eur(detteEtat(x).reste)}`;
+  return `<div class="field"><label style="color:var(--text);font-size:13.5px">↩️ ${dep?`Ça rembourse ce que tu dois à ${escH(p)} ?`:`${escH(p)} te rend de l'argent que tu lui as prêté ?`}</label>
+    <div class="seg" style="margin-bottom:8px"><button type="button" class="${v===false?"on-tr":""}" onclick="setRembDette(false)">Non</button><button type="button" class="${v?"on-ent":""}" onclick="setRembDette(true)">Oui, ${dep?"je rembourse":"on me rend"}</button></div>
+    ${d?(L.length>1?`<select id="fRembDette" aria-label="Quelle dette ?" style="margin-bottom:6px" onchange="setRembDette(this.value)">${L.map(x=>`<option value="${x.id}" ${x.id===d.id?"selected":""}>${lib(x)}</option>`).join("")}</select>`:"")
+      +`<div class="muted" style="font-size:12px">🔗 Rattaché à « <b>${escH(detteNom(d))}</b> » (reste ${eur(detteEtat(d).reste)}) : ce montant ${dep?"est retiré de ce que tu dois":"est retiré de ce qu'on te doit"}. Ce n'est pas une dépense d'enveloppe.</div>`
+      +`<label style="display:flex;align-items:flex-start;gap:8px;margin:9px 0 0;cursor:pointer;font-size:13px"><input type="checkbox" id="fRembAnnule" ${UI.rembAnnule?"checked":""} style="width:auto;margin-top:3px" onchange="UI.rembAnnule=this.checked;aRendreMaj()">
+        <span>🎁 Et le reste est annulé <span class="muted">— ${dep?escH(p)+" ne te demande plus rien après ça":"tu ne demandes plus rien après ça"}</span></span></label>`
+      +(UI.rembAnnule?`<input id="fRembRaison" autocomplete="off" placeholder="Pourquoi (facultatif) — ex : pari gagné" style="margin-top:8px" value="${escH(rembRaisonGardee())}">`:"")
+      :v===false?`<div class="muted" style="font-size:12px">Pas rattaché : ${dep?"les dettes envers "+escH(p)+" ne bougent pas":"le prêt ne bouge pas"}.</div>`:""}</div>`; }
+function rembRaisonGardee(){ const el=document.getElementById("fRembRaison"); return el?el.value:""; }   /* gardée quand le bloc est redessiné */
 function aRendreMaj(){ const box=document.getElementById("aRendre"); if(!box) return;
-  if(!aRendreVisible()){ box.innerHTML=""; box.style.display="none"; return; }
+  const remb=rembDetteHTML();
+  if(!aRendreVisible()){ box.innerHTML=remb; box.style.display=remb?"":"none"; return; }
   const v=UI.aRendre, p=aRendrePers(), ech=document.getElementById("fEch"), echV=ech?ech.value:"";
   box.style.display="";
-  box.innerHTML=`<div class="field"><label style="color:var(--text);font-size:13.5px">🤝 Je dois le rendre${p?" à "+escH(p):""} ?</label>
+  box.innerHTML=remb+`<div class="field"><label style="color:var(--text);font-size:13.5px">🤝 Je dois le rendre${p?" à "+escH(p):""} ?</label>
     <div class="seg" style="margin-bottom:8px"><button type="button" class="${v===false?"on-ent":""}" onclick="setARendre(false)">Non, c'est un don</button><button type="button" class="${v===true?"on-dep":""}" onclick="setARendre(true)">Oui, à rendre</button></div>
     ${v===true?`<div class="row2"><div class="field"><label>À rendre avant le (facultatif)</label><input id="fEch" type="date" value="${escH(echV)}"></div>
         <div class="field"><label>… ou en combien de mois</label><input id="fEchNb" type="number" min="1" step="1" inputmode="numeric" placeholder="Ex : 6" onchange="dtMois(this.value,'fDate','fEch')"></div></div>
@@ -1778,12 +1802,29 @@ async function saveTx(){
     sousCategorie:(document.getElementById("fSub").value==="__new__"?"":document.getElementById("fSub").value), compte:document.getElementById("fCompte").value,
     moyen:document.getElementById("fMoyen").value, observation:(document.getElementById("fObs")?document.getElementById("fObs").value.trim():""), periode:(UI.edit&&UI.edit.periode)||"" };
   if(dt) obj.dette=dt;
+  const r2=x=>Math.round(x*100)/100, m=r2(Math.abs(mont)), pers=obj.sousCategorie, fait=eid?"Modifié ✅":"Opération ajoutée ✅", dest=eid?UI.retour:(dt?"avenir":null);
+  /* ↩️ de l'argent rendu à quelqu'un à qui je dois (ou rendu par quelqu'un à qui j'ai prêté) : ça rembourse une dette ? */
+  const LR=rembDettesDispo();
+  if(LR.length){
+    let rd=rembChoisie();
+    if(!rd&&UI.rembDette!==false&&!eid){ const d0=LR[0], dep=UI.type==="dep";   /* pas répondu (ou réponse pour une autre personne) */
+      const oui=await demander(`${dep?`Ces ${eur(m)} remboursent ce que tu dois à ${pers} ?`:`${pers} te rend ces ${eur(m)} sur ce que tu lui as prêté ?`}\nOui : rattaché à « ${detteNom(d0)} » (reste ${eur(detteEtat(d0).reste)}), son reste baisse d'autant.${LR.length>1?"\nUne autre dette ? Ferme cette fenêtre et choisis-la dans le formulaire.":""}\nNon : ${dep?"rien n'est remboursé":"le prêt ne bouge pas"}.`,{oui:dep?"Oui, je rembourse":"Oui, on me rend",non:"Non",echap:null});
+      if(oui==null) return;   /* fenêtre fermée : rien n'est enregistré */
+      UI.rembDette=oui?d0.id:false; aRendreMaj(); rd=oui?d0:null; }
+    if(rd){ const e=detteEtat(rd), apres=r2(Math.max(0,e.reste-m));
+      obj.dette=rd.id; let msg=`${fait} · ↩️ « ${detteNom(rd)} » : `;
+      if(UI.rembAnnule&&apres>0.005){ const raisonEl=document.getElementById("fRembRaison");
+        rd.annule=r2((e.annule||0)+apres); rd.annuleLe=todayISO(); rd.annuleRaison=raisonEl?raisonEl.value.trim():""; rd.majLe=maintenantISO();
+        msg+=`${eur(m)} ${rd.genre==="pret"?"rendus":"remboursés"} · 🎁 ${eur(apres)} annulés · soldé${rd.genre==="pret"?"":"e"} ✅`; }
+      else msg+=apres>0.005?`reste ${eur(apres)}`:`${rd.genre==="pret"?"rendu":"remboursée"} en entier 🎉`;
+      UI.rembDette=null; UI.rembAnnule=false; UI.aRendre=null;
+      commit(obj,eid,dest,msg); return; } }
   /* 🤝 de l'argent reçu d'une personne : je dois le rendre ? (oui = la dette est créée avec l'opération) */
   let dette=null;
   if(aRendreVisible()){
-    const pers=obj.sousCategorie, m=Math.round(Math.abs(mont)*100)/100, echEl=document.getElementById("fEch"), ech=echEl?echEl.value:"";
+    const echEl=document.getElementById("fEch"), ech=echEl?echEl.value:"";
     let oui=UI.aRendre;
-    if(oui==null){ oui=await demander(`Tu dois rendre ces ${eur(m)}${pers?" à "+pers:""} ?\nOui : la dette est notée dans À venir → 🤝 Dettes.\nNon : c'est un don, rien à rendre.`,{oui:"Oui, je dois le rendre",non:"Non, c'est un don",echap:null});
+    if(oui==null&&!eid){ oui=await demander(`Tu dois rendre ces ${eur(m)}${pers?" à "+pers:""} ?\nOui : la dette est notée dans À venir → 🤝 Dettes.\nNon : c'est un don, rien à rendre.`,{oui:"Oui, je dois le rendre",non:"Non, c'est un don",echap:null});
       if(oui==null) return;   /* fenêtre fermée : rien n'est enregistré, le formulaire reste rempli */
       if(oui){ UI.aRendre=true; aRendreMaj(); } }
     if(oui){
@@ -1791,10 +1832,10 @@ async function saveTx(){
       if(ech&&ech<date){ toast("La date pour rendre est avant la date de l'opération"); return; }
       dette={id:uid(),genre:"dois",nom:obj.note||"",montant:m,date,echeance:ech,personne:pers,majLe:maintenantISO()};
       obj.dette=dette.id; } }
-  if(dette){ DB.dettes.push(dette); UI.aRendre=null;
-    commit(obj,null,null,`Opération ajoutée ✅ · 🤝 ${eur(dette.montant)} à rendre à ${dette.personne}`); return; }
-  UI.aRendre=null;
-  commit(obj,eid,eid?UI.retour:(dt?"avenir":null));
+  UI.rembDette=null; UI.rembAnnule=false; UI.aRendre=null;
+  if(dette){ DB.dettes.push(dette);
+    commit(obj,eid,eid?UI.retour:null,`${fait} · 🤝 ${eur(dette.montant)} à rendre à ${dette.personne}`); return; }
+  commit(obj,eid,dest);
 }
 function isCashAcct(id){ const a=acct(id); return !!(a&&a.type==="cash"); }
 /* comptes espèces touchés par une opération, avec le sens : {id: montant signé} */
@@ -1939,7 +1980,7 @@ function renderTxList(){
       <button class="del" onclick="editTx('${t.id}')">✏️</button><button class="del" onclick="delTx('${t.id}')">🗑️</button></div>`;
   }).join("");
 }
-function editTx(id){ const t=DB.transactions.find(x=>x.id===id); if(!t) return; UI.retour=UI.tab==="saisie"?UI.retour:UI.tab; UI.edit=t; UI.type=t.type==="transfer"?"tr":(t.montant<0?"dep":"ent"); UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
+function editTx(id){ const t=DB.transactions.find(x=>x.id===id); if(!t) return; UI.retour=UI.tab==="saisie"?UI.retour:UI.tab; UI.edit=t; UI.aRendre=null; UI.rembDette=null; UI.rembAnnule=false; UI.type=t.type==="transfer"?"tr":(t.montant<0?"dep":"ent"); UI.tab="saisie"; renderNav(); render(); window.scrollTo(0,0); }
 /* Supprimer une ligne isolée ne pose pas de question : elle part tout de suite et le toast propose « Annuler »
    pendant quelques secondes (la copie garde son détail espèces, qui est remis tel quel). */
 function delTx(id){
@@ -2304,15 +2345,21 @@ function dettesResumeHTML(){ const L=dettesActives(); if(!L.length) return "";
 
 function detteOpLigne(d,t,lie){ const remb=estRembDette(d,t);
   return `<div class="lg"><div class="g"><b>${frDateJ(t.date)}</b> · ${remb?"↩️ remboursement":d.genre==="pret"?"💸 prêt":"💸 emprunt"}${t.note?" · "+escH(t.note):""}
-      <div class="muted" style="font-size:11px">${t.type==="transfer"?acctHTML(t.from)+" → "+acctHTML(t.to):acctHTML(resolveAccount(t))}</div></div>
+      <div class="muted" style="font-size:11px">${t.type==="transfer"?acctHTML(t.from)+" → "+acctHTML(t.to):(t.categorie?escH(t.categorie)+(t.sousCategorie?" / "+escH(t.sousCategorie):"")+" · ":"")+acctHTML(resolveAccount(t))}</div></div>
     <div class="d"><b class="${remb?"pos":""}">${eur(Math.abs(t.montant))}</b>${lie
       ?`<button class="ed" title="Modifier cette opération" onclick="editTx('${t.id}')">✏️</button><button class="ed" title="Détacher : l'opération reste, mais ne compte plus pour cette dette" onclick="detteDetacher('${t.id}')">✂️</button>`
       :`<button class="btn ghost sm" style="width:auto;padding:3px 9px;margin-left:6px;font-size:12px" onclick="detteRattacher('${d.id}','${t.id}')">🔗 Rattacher</button>`}</div></div>`; }
-/* remboursements déjà saisis mais pas rattachés : un virement vers le compte d'épargne, une sortie d'Argent vers la personne */
-function detteCandidats(d){ const libre=t=>!(t.dette&&detteDe(t.dette))&&(t.date||"")>=(d.date||"");
+/* remboursements déjà saisis mais pas rattachés : un virement vers le compte d'épargne, une sortie d'Argent vers la personne
+   (quelle que soit la date : une dette notée après coup porte souvent la date du jour) */
+function detteLibre(t){ return !(t.dette&&detteDe(t.dette)); }
+function detteCandidats(d){ const libre=detteLibre;
   const L=d.genre==="auto"?DB.transactions.filter(t=>t.type==="transfer"&&t.to===d.compte&&libre(t))
     :DB.transactions.filter(t=>isArgentTx(t)&&(d.genre==="pret"?t.montant>0:t.montant<0)&&libre(t)&&(t.sousCategorie||"").trim().toLowerCase()===(d.personne||"").trim().toLowerCase());
   return L.sort((a,b)=>(b.date||"").localeCompare(a.date||"")); }
+/* 🔎 toutes les autres opérations du bon sens, pas encore rattachées : c'est moi qui choisis (une autre personne, une dépense d'enveloppe…) */
+function detteAutres(d,cand){ if(d.genre==="auto") return []; const deja=new Set(cand.map(t=>t.id));
+  return DB.transactions.filter(t=>t.type!=="transfer"&&(d.genre==="pret"?t.montant>0:t.montant<0)&&detteLibre(t)&&!deja.has(t.id))
+    .sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,40); }
 /* 🎁 la part annulée, comme une ligne de plus dans les opérations de la dette (ce n'est pas une opération : rien ne bouge sur les comptes) */
 function detteAnnuleLigne(d,e){
   return `<div class="lg"><div class="g"><b>${frDateJ(d.annuleLe||d.date)}</b> · 🎁 annulé${d.annuleRaison?" · "+escH(d.annuleRaison):""}
@@ -2328,7 +2375,7 @@ function detteHTML(d,e){ const auto=d.genre==="auto", pret=d.genre==="pret", s=n
     else plan=`<div style="font-size:13px;margin-top:6px">📆 <b>${eur(e.parMois)}</b> par mois pendant <b>${e.nb}</b> mois <span class="muted">· ${e.nb>1?"du "+frDate(e.ech[0])+" au "+frDate(d.echeance):"le "+frDate(d.echeance)}</span></div>`;
     if(e.prevus.length) plan+=`<div class="muted" style="font-size:12px;margin-top:3px">📅 ${e.prevus.length} mensualité${s(e.prevus.length)} déjà prévue${s(e.prevus.length)} dans Paiements (${eur(e.prevus.reduce((a,f)=>a+Math.abs(f.montant),0))}) · la prochaine le ${frDate(e.prevus[0].date)} : ${eur(Math.abs(e.prevus[0].montant))}</div>`;
   }
-  const cand=e.solde?[]:detteCandidats(d);
+  const cand=e.solde?[]:detteCandidats(d), autres=e.solde?[]:detteAutres(d,cand);
   const b=(txt,fn,style)=>`<button class="btn ghost sm" style="width:auto;padding:7px 12px;${style||""}" onclick="${fn}('${d.id}')">${txt}</button>`;
   return `<div class="dette">
     <div class="dt1"><span>${auto?"🐷":pret?"🫴":"👤"} <b>${escH(detteNom(d))}</b></span><b class="${e.solde||pret?"pos":"neg"}">${e.solde?"✅":eur(e.reste)}</b></div>
@@ -2343,9 +2390,13 @@ function detteHTML(d,e){ const auto=d.genre==="auto", pret=d.genre==="pret", s=n
       ${e.solde?(d.clos||d.annule?b("↩️ Rouvrir","detteRouvrir"):""):b(pret?"✅ Déjà rendu":"✅ Déjà remboursé","detteClore")}
       ${!e.solde&&!auto?b(pret?"🎁 Prêt annulé":"🎁 Dette annulée","detteAnnuler"):""}
       ${b("✏️","detteModifier")}${b("🗑️","detteSuppr","color:var(--neg)")}</div>
-    ${e.ops.length||cand.length||e.annule>0.005?pli("dette:"+d.id,`<span class="tot"><span>📋 Opérations</span><span class="muted" style="font-size:12px">${e.ops.length} rattachée${s(e.ops.length)}${e.annule>0.005?" + 🎁":""}${cand.length?" · "+cand.length+" à rattacher ?":""}</span></span>`,
+    ${!e.solde||e.ops.length||e.annule>0.005?pli("dette:"+d.id,`<span class="tot"><span>📋 Opérations</span><span class="muted" style="font-size:12px">${e.ops.length} rattachée${s(e.ops.length)}${e.annule>0.005?" + 🎁":""}${cand.length?" · "+cand.length+" à rattacher ?":""}</span></span>`,
       (e.annule>0.005?[{annule:true,date:d.annuleLe||""}]:[]).concat(e.ops).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(t=>t.annule?detteAnnuleLigne(d,e):detteOpLigne(d,t,true)).join("")
-      +(cand.length?`<div class="muted" style="font-size:11.5px;margin:8px 0 2px">Déjà saisi${s(cand.length)}, peut-être un remboursement de cette dette :</div>`+cand.map(t=>detteOpLigne(d,t,false)).join(""):""),"sous"):""}
+      +(cand.length?`<div class="muted" style="font-size:11.5px;margin:8px 0 2px">Déjà saisi${s(cand.length)}, peut-être un remboursement de cette dette :</div>`+cand.map(t=>detteOpLigne(d,t,false)).join(""):"")
+      +(autres.length?pli("dette-autres:"+d.id,`<span class="tot"><span>🔎 Choisir une autre opération</span><span class="muted" style="font-size:12px">${autres.length}</span></span>`,
+        `<div class="muted" style="font-size:11.5px;margin:2px 0">${pret?"Une entrée":"Une dépense"} déjà saisie ${pret?"rend ce prêt":"rembourse cette dette"} ? Touche « 🔗 Rattacher ». Elle garde sa catégorie.</div>`
+        +autres.map(t=>detteOpLigne(d,t,false)).join(""),"sous"):"")
+      +(!e.ops.length&&!cand.length&&!autres.length&&!(e.annule>0.005)?`<div class="muted" style="font-size:12px;padding:6px 0">Rien de rattaché pour l'instant.</div>`:""),"sous"):""}
   </div>`; }
 function viewDettes(){
   const r2=x=>Math.round(x*100)/100, L=DB.dettes||[], E={}; L.forEach(d=>E[d.id]=detteEtat(d));
@@ -2525,7 +2576,8 @@ async function detteAnnuler(id){ const d=detteDe(id); if(!d||d.genre==="auto") r
     copie.forEach(f=>{ if(!DB.future.some(x=>x.id===f.id)) DB.future.push(f); }); save(); render(); }}); }
 function detteRouvrir(id){ const d=detteDe(id); if(!d) return; delete d.clos; delete d.annule; delete d.annuleLe; delete d.annuleRaison; d.majLe=maintenantISO(); save(); render(); toast("Rouverte ↩️"); }
 function detteRattacher(id,txId){ const t=DB.transactions.find(x=>x.id===txId); if(!t||!detteDe(id)) return;
-  t.dette=id; t.majLe=maintenantISO(); toast("Rattaché ✅"); dettesAjusterDire(); save(); render(); }
+  t.dette=id; t.majLe=maintenantISO();
+  toast(t.type!=="transfer"&&catGenre(t.categorie)==="depense"?`Rattaché ✅ · elle compte aussi dans l'enveloppe « ${t.categorie} »`:"Rattaché ✅"); dettesAjusterDire(); save(); render(); }
 function detteDetacher(txId){ const t=DB.transactions.find(x=>x.id===txId); if(!t) return;
   const avant=t.dette; delete t.dette; t.majLe=maintenantISO(); save(); render();
   toast("Détaché",{libelle:"↩️ Annuler",fn:()=>{ t.dette=avant; save(); render(); }}); }
